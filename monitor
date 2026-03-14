@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""Convenience wrapper for launching the monitor from the repo root."""
+
+from ai_monitor.__main__ import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

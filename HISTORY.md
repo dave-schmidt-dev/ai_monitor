@@ -10,3 +10,4 @@
 - Tightened the dashboard layout with fixed compact card widths to preserve split view and avoid right-edge border wrapping.
 - Standardized Claude and Codex dashboard wording around shared 5-hour and 1-week session windows, and removed the unused Codex credits row.
 - Added GitHub-ready repo hygiene with a `.gitignore`, richer README documentation, and checked-in screenshots.
+- Added an MIT license for public GitHub distribution.

@@ -1,5 +1,9 @@
 # History
 
+## 2026-03-14
+
+- Fixed `NameError: name 're' is not defined` crash on startup by adding missing `import re` to `ui.py`.
+
 ## 2026-03-13
 
 - Added initial PTY-based terminal monitor for Codex and Claude usage.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 import json
 import re
@@ -33,6 +34,47 @@ PALETTE = {
     "pink": "\033[38;5;219m",
     "border": "\033[38;5;67m",
     "shadow": "\033[38;5;239m",
+}
+
+
+@dataclass(frozen=True, slots=True)
+class WindowRenderSpec:
+    window_id: str
+    session_label: str
+    reset_label: str
+    pace_label: str
+    percent_key: str
+    reset_key: str
+    window_hours: float
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderRenderSpec:
+    title: str
+    subtitle: str
+    accent: str
+    windows: tuple[WindowRenderSpec, ...]
+
+
+PROVIDER_RENDER_SPECS = {
+    "Codex": ProviderRenderSpec(
+        title="Codex",
+        subtitle="OpenAI CLI quota view",
+        accent=PALETTE["blue"],
+        windows=(
+            WindowRenderSpec("five_hour", "5h session", "5h resets", "5h pace", "five_hour_percent_left", "five_hour_reset", 5.0),
+            WindowRenderSpec("weekly", "1w session", "1w resets", "1w pace", "weekly_percent_left", "weekly_reset", 24.0 * 7.0),
+        ),
+    ),
+    "Claude": ProviderRenderSpec(
+        title="Claude",
+        subtitle="Anthropic CLI usage view",
+        accent=PALETTE["pink"],
+        windows=(
+            WindowRenderSpec("five_hour", "5h session", "5h resets", "5h pace", "session_percent_left", "primary_reset", 5.0),
+            WindowRenderSpec("weekly", "1w session", "1w resets", "1w pace", "weekly_percent_left", "secondary_reset", 24.0 * 7.0),
+        ),
+    ),
 }
 
 
@@ -141,34 +183,67 @@ def _progress_bar(percent: int | None, width: int, accent: str) -> str:
 def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | None:
     if not reset_text or reset_text == "n/a":
         return None
-    lower = reset_text.lower()
+    normalized = re.sub(r"\s+", " ", reset_text).strip()
+    lower = normalized.lower()
     target: datetime | None = None
+    target_year = now.year
+    fragments = normalized.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
+    fragments = fragments.replace(",", "")
+    fragments = re.sub(r"(?i)(\d)(am|pm)\b", r"\1 \2", fragments)
+    fragments = re.sub(r"\s+", " ", fragments).strip()
+
+    relative = re.search(r"(?i)\bin\s+(?:(?P<days>\d+)d\s*)?(?:(?P<hours>\d+)h\s*)?(?:(?P<minutes>\d+)m)?", fragments)
+    if relative and any(relative.group(name) for name in ("days", "hours", "minutes")):
+        return now + timedelta(
+            days=int(relative.group("days") or 0),
+            hours=int(relative.group("hours") or 0),
+            minutes=int(relative.group("minutes") or 0),
+        )
 
     if " on " in lower:
-        fragments = reset_text.replace("resets", "").replace("Resets", "").strip()
-        for fmt in ("%H:%M on %d %b", "%I:%M %p on %d %b", "%d %b at %I:%M %p", "%b %d at %I:%M %p"):
-            try:
-                parsed = datetime.strptime(fragments, fmt)
-            except ValueError:
-                continue
-            target = parsed.replace(year=now.year)
-            if target < now:
-                target = target.replace(year=now.year + 1)
-            break
+        candidates = [fragments]
+        if fragments.lower().startswith("on "):
+            candidates.insert(0, fragments[3:].strip())
+        for candidate in candidates:
+            stamped = f"{candidate} {target_year}"
+            for fmt in (
+                "%H:%M on %d %b %Y",
+                "%I %p on %d %b %Y",
+                "%I:%M %p on %d %b %Y",
+                "%b %d %H:%M %Y",
+                "%b %d %I %p %Y",
+                "%b %d %I:%M %p %Y",
+            ):
+                try:
+                    parsed = datetime.strptime(stamped, fmt)
+                except ValueError:
+                    continue
+                target = parsed
+                if target < now:
+                    target = target.replace(year=target_year + 1)
+                break
+            if target is not None:
+                break
     elif " at " in lower:
-        fragments = reset_text.replace("resets", "").replace("Resets", "").strip()
-        for fmt in ("%b %d at %I %p", "%b %d at %I:%M %p"):
+        stamped = f"{fragments} {target_year}"
+        for fmt in (
+            "%b %d at %H:%M %Y",
+            "%b %d at %I %p %Y",
+            "%b %d at %I:%M %p %Y",
+            "%d %b at %H:%M %Y",
+            "%d %b at %I %p %Y",
+            "%d %b at %I:%M %p %Y",
+        ):
             try:
-                parsed = datetime.strptime(fragments, fmt)
+                parsed = datetime.strptime(stamped, fmt)
             except ValueError:
                 continue
-            target = parsed.replace(year=now.year)
+            target = parsed
             if target < now:
-                target = target.replace(year=now.year + 1)
+                target = target.replace(year=target_year + 1)
             break
-    elif lower.startswith("resets ") and ("am" in lower or "pm" in lower):
-        fragments = reset_text.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
-        for fmt in ("%I %p", "%I:%M %p"):
+    elif lower.startswith("resets "):
+        for fmt in ("%H:%M", "%I %p", "%I:%M %p"):
             try:
                 parsed = datetime.strptime(fragments, fmt)
             except ValueError:
@@ -224,13 +299,10 @@ def _format_reset_display(reset_text: str | None, now: datetime) -> str:
         value = reset_text.replace("Resets", "").replace("resets", "").strip()
         return re.sub(r"\s+", " ", value)
 
-    if " on " in reset_text.lower() or " at " in reset_text.lower():
+    if target.date() != now.date():
         return target.strftime("%b %d ") + _format_clock(target.hour, target.minute)
 
-    suffix = ""
-    if "(" in reset_text and ")" in reset_text:
-        suffix = " " + reset_text[reset_text.find("(") : reset_text.find(")") + 1]
-    return f"{_format_clock(target.hour, target.minute)}{suffix}"
+    return _format_clock(target.hour, target.minute)
 
 
 def _pace_label(percent_left: int | None, reset_text: str | None, now: datetime, window_hours: float | None) -> str:
@@ -284,10 +356,67 @@ def _info_row(label: str, value: object | None, width: int) -> str:
     return f"{PALETTE['muted']}{label:<12}{RESET} {PALETTE['ink']}{plain}{RESET}"
 
 
-def _reset_row(label: str, value: object | None, width: int) -> str:
-    now = datetime.now()
+def _reset_row(label: str, value: object | None, width: int, now: datetime) -> str:
     plain = _truncate(_format_reset_display(None if value is None else str(value), now), max(8, width - 14))
     return f"{PALETTE['muted']}{label:<12}{RESET} {PALETTE['cyan']}{plain}{RESET}"
+
+
+def _build_usage_rows(
+    data: dict[str, object],
+    width: int,
+    now: datetime,
+    windows: tuple[WindowRenderSpec, ...],
+) -> list[str]:
+    rows: list[str] = []
+    for window in windows:
+        percent = data.get(window.percent_key)
+        reset = data.get(window.reset_key)
+        rows.extend(
+            (
+                _metric_row(window.session_label, percent, None if reset is None else str(reset), width, now),
+                _reset_row(window.reset_label, reset, width, now),
+                _pace_row(window.pace_label, percent, None if reset is None else str(reset), width, now, window.window_hours),
+            )
+        )
+    return rows
+
+
+def _generic_snapshot_rows(data: dict[str, object], width: int, source: str) -> list[str]:
+    rows = [_info_row("status", "ok", width), _info_row("source", source, width)]
+    for key, value in sorted(data.items()):
+        if key == "raw_text":
+            continue
+        label = key.replace("_", " ")
+        rows.append(_info_row(label[:12], value, width))
+    return rows[:6]
+
+
+def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -> list[str]:
+    assert snapshot.data is not None
+    badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
+    spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
+    if spec is None:
+        rows = _generic_snapshot_rows(snapshot.data, card_width - 4, snapshot.source)
+        return _card(snapshot.name, "provider usage view", rows, card_width, PALETTE["cyan"], True, badge_text)
+
+    rows = _build_usage_rows(snapshot.data, card_width - 4, now, spec.windows)
+    return _card(spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text)
+
+
+def _provider_display_fields(snapshot: ProviderSnapshot, now: datetime) -> dict[str, str]:
+    if not snapshot.data:
+        return {}
+    spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
+    if spec is None:
+        return {}
+    display: dict[str, str] = {}
+    for window in spec.windows:
+        raw_reset = snapshot.data.get(window.reset_key)
+        display[f"{window.window_id}_reset_display"] = _format_reset_display(
+            None if raw_reset is None else str(raw_reset),
+            now,
+        )
+    return display
 
 
 def _card(
@@ -337,6 +466,7 @@ def render_json(snapshots: list[ProviderSnapshot], updated_at: datetime) -> str:
                 "ok": snap.ok,
                 "source": snap.source,
                 "data": snap.data,
+                "display": _provider_display_fields(snap, updated_at),
                 "error": snap.error,
             }
             for snap in snapshots
@@ -408,28 +538,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
             cards.append(_card(snapshot.name, "probe needs attention", error_rows, card_width, PALETTE["red"], False))
             continue
 
-        assert snapshot.data is not None
-        badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
-        if snapshot.name == "Codex":
-            rows = [
-                _metric_row("5h session", snapshot.data.get("five_hour_percent_left"), snapshot.data.get("five_hour_reset"), card_width - 4, now),
-                _reset_row("5h resets", snapshot.data.get("five_hour_reset"), card_width - 4),
-                _pace_row("5h pace", snapshot.data.get("five_hour_percent_left"), snapshot.data.get("five_hour_reset"), card_width - 4, now, 5.0),
-                _metric_row("1w session", snapshot.data.get("weekly_percent_left"), snapshot.data.get("weekly_reset"), card_width - 4, now),
-                _reset_row("1w resets", snapshot.data.get("weekly_reset"), card_width - 4),
-                _pace_row("1w pace", snapshot.data.get("weekly_percent_left"), snapshot.data.get("weekly_reset"), card_width - 4, now, 24.0 * 7.0),
-            ]
-            cards.append(_card("Codex", "OpenAI CLI quota view", rows, card_width, PALETTE["blue"], True, badge_text))
-        else:
-            rows = [
-                _metric_row("5h session", snapshot.data.get("session_percent_left"), snapshot.data.get("primary_reset"), card_width - 4, now),
-                _reset_row("5h resets", snapshot.data.get("primary_reset"), card_width - 4),
-                _pace_row("5h pace", snapshot.data.get("session_percent_left"), snapshot.data.get("primary_reset"), card_width - 4, now, 5.0),
-                _metric_row("1w session", snapshot.data.get("weekly_percent_left"), snapshot.data.get("secondary_reset"), card_width - 4, now),
-                _reset_row("1w resets", snapshot.data.get("secondary_reset"), card_width - 4),
-                _pace_row("1w pace", snapshot.data.get("weekly_percent_left"), snapshot.data.get("secondary_reset"), card_width - 4, now, 24.0 * 7.0),
-            ]
-            cards.append(_card("Claude", "Anthropic CLI usage view", rows, card_width, PALETTE["pink"], True, badge_text))
+        cards.append(_provider_card(snapshot, card_width, now))
 
     if len(cards) == 2 and width >= split_threshold:
         body = _merge_columns(cards[0], cards[1], gap=gap)

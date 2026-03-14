@@ -15,8 +15,10 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Reuses persistent PTY sessions to reduce refresh latency after startup
 - Refreshes every 120 seconds by default
 - Shows 5-hour and 1-week session usage, reset times, and pace indicators
+- Uses a shared provider card renderer so reset labels and pacing rows stay aligned across providers
+- Canonicalizes reset displays to one local format across provider-specific strings
 - Renders a compact split dashboard optimized for terminal use
-- Exposes `--json` output for scripting and automation
+- Exposes `--json` output for scripting and automation, including normalized reset display fields
 - Includes parser tests for representative Codex and Claude output
 
 ## Requirements
@@ -65,6 +67,40 @@ Each provider card shows:
 - `1w session`: remaining usage for the current 1-week window
 - `1w resets`: next weekly reset time
 - `1w pace`: weekly pace indicator
+
+Reset displays are normalized before rendering:
+
+- Same-day resets render as `h:mm AM/PM`
+- Future resets render as `Mon DD h:mm AM/PM`
+- Relative vendor text like `Resets in 2h 14m` is converted into the same absolute local display
+
+## JSON Output
+
+`--json` preserves the raw provider payload under `data` and adds normalized reset display fields under `display`.
+
+Example:
+
+```json
+{
+  "updated_at": "2026-03-14T08:22:30",
+  "providers": [
+    {
+      "name": "Codex",
+      "ok": true,
+      "source": "cli",
+      "data": {
+        "five_hour_reset": "Resets 13:16",
+        "weekly_reset": "Resets on Mar 18, 9:00AM"
+      },
+      "display": {
+        "five_hour_reset_display": "1:16 PM",
+        "weekly_reset_display": "Mar 18 9:00 AM"
+      },
+      "error": null
+    }
+  ]
+}
+```
 
 ## Notes
 

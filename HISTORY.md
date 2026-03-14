@@ -3,6 +3,10 @@
 ## 2026-03-14
 
 - Fixed `NameError: name 're' is not defined` crash on startup by adding missing `import re` to `ui.py`.
+- Refactored provider card rendering through a shared spec-driven row builder so Claude and Codex use the same metric/reset/pace text pipeline.
+- Added UI regression tests to keep shared provider card labels aligned as new providers are added.
+- Canonicalized reset date/time formatting across provider strings, including relative, 24-hour, and vendor-specific reset text variants.
+- Added normalized reset display fields to `--json` output so scripts can reuse the same canonical formatting as the TUI.
 
 ## 2026-03-13
 

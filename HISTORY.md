@@ -11,3 +11,7 @@
 - Standardized Claude and Codex dashboard wording around shared 5-hour and 1-week session windows, and removed the unused Codex credits row.
 - Added GitHub-ready repo hygiene with a `.gitignore`, richer README documentation, and checked-in screenshots.
 - Added an MIT license for public GitHub distribution.
+- Kept the last good provider snapshot on transient probe failures so temporary Claude usage errors do not replace the live card immediately.
+- Added a `cached` badge so reused provider snapshots are visible in the dashboard.
+- Added cached age display so reused provider snapshots show how stale they are.
+- Increased the default refresh interval from 60 seconds to 120 seconds while keeping `--interval` as an override.

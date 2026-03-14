@@ -13,7 +13,7 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Monitors Codex usage via `/status`
 - Monitors Claude usage via `/usage`
 - Reuses persistent PTY sessions to reduce refresh latency after startup
-- Refreshes every 60 seconds by default
+- Refreshes every 120 seconds by default
 - Shows 5-hour and 1-week session usage, reset times, and pace indicators
 - Renders a compact split dashboard optimized for terminal use
 - Exposes `--json` output for scripting and automation
@@ -38,6 +38,7 @@ Useful options:
 ```bash
 python3 -m ai_monitor --once
 python3 -m ai_monitor --interval 30
+python3 -m ai_monitor --interval 60
 python3 -m ai_monitor --json
 python3 -m ai_monitor --debug
 ./monitor --once

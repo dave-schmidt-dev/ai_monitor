@@ -202,6 +202,19 @@ def _format_clock(hour: int, minute: int) -> str:
     return stamp.lstrip("0")
 
 
+def _cached_badge_text(snapshot: ProviderSnapshot, now: datetime) -> str:
+    if not snapshot.cached_since:
+        return "live"
+    age_seconds = max(0, int((now - snapshot.cached_since).total_seconds()))
+    if age_seconds < 60:
+        return "cached <1m"
+    age_minutes = age_seconds // 60
+    if age_minutes < 60:
+        return f"cached {age_minutes}m"
+    age_hours = age_minutes // 60
+    return f"cached {age_hours}h"
+
+
 def _format_reset_display(reset_text: str | None, now: datetime) -> str:
     if not reset_text or reset_text == "n/a":
         return "n/a"
@@ -276,7 +289,15 @@ def _reset_row(label: str, value: object | None, width: int) -> str:
     return f"{PALETTE['muted']}{label:<12}{RESET} {PALETTE['cyan']}{plain}{RESET}"
 
 
-def _card(title: str, subtitle: str, rows: list[str], width: int, accent: str, ok: bool) -> list[str]:
+def _card(
+    title: str,
+    subtitle: str,
+    rows: list[str],
+    width: int,
+    accent: str,
+    ok: bool,
+    badge_text: str | None = None,
+) -> list[str]:
     inner = width - 4
     top = f"{PALETTE['border']}+{'-' * (width - 2)}+{RESET}"
     bottom = f"{PALETTE['border']}+{'-' * (width - 2)}+{RESET}"
@@ -284,7 +305,7 @@ def _card(title: str, subtitle: str, rows: list[str], width: int, accent: str, o
     safe_subtitle = _truncate(subtitle, inner)
     colored_title = f"{BOLD}{accent}{safe_title}{RESET}"
     title_line = f"{PALETTE['border']}|{RESET} {_pad_colored(colored_title, inner)} {PALETTE['border']}|{RESET}"
-    subtitle_badge = _badge("live" if ok else "issue", PALETTE["ink"], PALETTE["panel"])
+    subtitle_badge = _badge(badge_text or ("live" if ok else "issue"), PALETTE["ink"], PALETTE["panel"])
     badge_line = f"{PALETTE['border']}|{RESET} {_pad_colored(subtitle_badge, inner)} {PALETTE['border']}|{RESET}"
     subtitle_line = f"{PALETTE['border']}|{RESET} {_pad_colored(safe_subtitle, inner)} {PALETTE['border']}|{RESET}"
     body = [
@@ -387,6 +408,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
             continue
 
         assert snapshot.data is not None
+        badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
         if snapshot.name == "Codex":
             rows = [
                 _metric_row("5h session", snapshot.data.get("five_hour_percent_left"), snapshot.data.get("five_hour_reset"), card_width - 4, now),
@@ -396,7 +418,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
                 _reset_row("1w resets", snapshot.data.get("weekly_reset"), card_width - 4),
                 _pace_row("1w pace", snapshot.data.get("weekly_percent_left"), snapshot.data.get("weekly_reset"), card_width - 4, now, 24.0 * 7.0),
             ]
-            cards.append(_card("Codex", "OpenAI CLI quota view", rows, card_width, PALETTE["blue"], True))
+            cards.append(_card("Codex", "OpenAI CLI quota view", rows, card_width, PALETTE["blue"], True, badge_text))
         else:
             rows = [
                 _metric_row("5h session", snapshot.data.get("session_percent_left"), snapshot.data.get("primary_reset"), card_width - 4, now),
@@ -406,7 +428,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
                 _reset_row("1w resets", snapshot.data.get("secondary_reset"), card_width - 4),
                 _pace_row("1w pace", snapshot.data.get("weekly_percent_left"), snapshot.data.get("secondary_reset"), card_width - 4, now, 24.0 * 7.0),
             ]
-            cards.append(_card("Claude", "Anthropic CLI usage view", rows, card_width, PALETTE["pink"], True))
+            cards.append(_card("Claude", "Anthropic CLI usage view", rows, card_width, PALETTE["pink"], True, badge_text))
 
     if len(cards) == 2 and width >= split_threshold:
         body = _merge_columns(cards[0], cards[1], gap=gap)

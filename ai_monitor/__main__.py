@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import datetime
 import os
 import sys
@@ -15,7 +16,7 @@ from .ui import countdown_sleep, render_json, render_loading_screen, render_scre
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Monitor Codex and Claude usage in real time.")
-    parser.add_argument("--interval", type=int, default=60, help="Refresh interval in seconds.")
+    parser.add_argument("--interval", type=int, default=120, help="Refresh interval in seconds.")
     parser.add_argument("--once", action="store_true", help="Fetch one snapshot and exit.")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of the live dashboard.")
     parser.add_argument("--debug", action="store_true", help="Show full exception strings from probes.")
@@ -65,12 +66,52 @@ def collect_snapshots(providers: list[tuple[str, object]], debug: bool) -> list[
     return snapshots
 
 
+def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
+    if snapshot.ok or not snapshot.error:
+        return False
+    message = snapshot.error.lower()
+    transient_markers = (
+        "rate limited",
+        "failed to load usage data",
+        "could not load usage data",
+        "empty claude output",
+        "missing current session",
+        "data not available yet",
+    )
+    return any(marker in message for marker in transient_markers)
+
+
+def _merge_with_previous(
+    previous: list[ProviderSnapshot],
+    fresh: list[ProviderSnapshot],
+) -> list[ProviderSnapshot]:
+    previous_by_name = {snap.name: snap for snap in previous}
+    merged: list[ProviderSnapshot] = []
+    for snapshot in fresh:
+        prior = previous_by_name.get(snapshot.name)
+        if prior and prior.ok and _is_transient_probe_error(snapshot):
+            merged.append(
+                replace(
+                    prior,
+                    source=f"{prior.source} (cached)",
+                    cached_since=prior.cached_since or datetime.now(),
+                )
+            )
+            continue
+        if snapshot.ok and snapshot.cached_since is not None:
+            merged.append(replace(snapshot, cached_since=None))
+            continue
+        merged.append(snapshot)
+    merged.sort(key=lambda item: item.name)
+    return merged
+
+
 def main() -> int:
     args = parse_args()
     cwd = os.getcwd()
     providers, cleanup = initialize_providers(cwd)
 
-    def refresh() -> list[ProviderSnapshot]:
+    def refresh(previous: list[ProviderSnapshot]) -> list[ProviderSnapshot]:
         fresh: list[ProviderSnapshot] = []
         executor = ThreadPoolExecutor(max_workers=len(cleanup) or 1)
         try:
@@ -91,8 +132,7 @@ def main() -> int:
         for snap in snapshots:
             if snap.name not in static_names and not snap.ok:
                 fresh.append(snap)
-        fresh.sort(key=lambda item: item.name)
-        return fresh
+        return _merge_with_previous(previous, fresh)
 
     try:
         if args.json:
@@ -136,7 +176,7 @@ def main() -> int:
                 write_screen(render_screen(current, updated_at, remaining))
 
             countdown_sleep(args.interval, render_frame)
-            current = refresh()
+            current = refresh(current)
     except KeyboardInterrupt:
         write_screen("\n")
         return 0

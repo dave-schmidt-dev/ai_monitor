@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import shutil
 from typing import Any
 
@@ -26,6 +27,7 @@ class ProviderSnapshot:
     source: str
     data: dict[str, Any] | None = None
     error: str | None = None
+    cached_since: datetime | None = None
 
 
 class ProbeFailure(RuntimeError):

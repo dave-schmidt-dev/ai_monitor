@@ -24,6 +24,7 @@ class CaptureConfig:
     timeout: float
     startup_wait: float = 0.5
     idle_timeout: float | None = None
+    discard_preexisting_output: bool = True
     stop_substrings: tuple[str, ...] = ()
     settle_after_stop: float = 0.25
     send_enter_every: float | None = None
@@ -74,7 +75,6 @@ class PersistentPTYSession:
         self.process = process
         self.pid = process.pid
         time.sleep(0.5)
-        self.drain()
 
     @staticmethod
     def _set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -147,7 +147,8 @@ class PersistentPTYSession:
 
         if config.startup_wait > 0:
             time.sleep(config.startup_wait)
-        self.drain()
+        if config.discard_preexisting_output:
+            self.drain()
         try:
             os.write(self.master_fd, command.encode("utf-8") + b"\r")
         except OSError as exc:

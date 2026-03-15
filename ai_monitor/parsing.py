@@ -1,4 +1,4 @@
-"""Parsing helpers for Codex and Claude usage output."""
+"""Parsing helpers for Codex, Claude, and Gemini usage output."""
 
 from __future__ import annotations
 
@@ -128,6 +128,20 @@ class ClaudeStatus:
     account_email: str | None
     account_organization: str | None
     login_method: str | None
+    raw_text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class GeminiStatus:
+    flash_percent_left: int | None
+    pro_percent_left: int | None
+    flash_reset: str | None
+    pro_reset: str | None
+    account_email: str | None
+    account_tier: str | None
     raw_text: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -279,6 +293,8 @@ def _extract_usage_error(text: str) -> str | None:
     compact = "".join(lower.split())
     if "do you trust the files in this folder?" in lower and "current session" not in lower:
         return "Claude CLI is waiting for a folder trust prompt"
+    if "/usage is only available for subscription plans" in lower or "/usageisonlyvilableforsubscriptionplans" in compact:
+        return "Claude CLI says /usage is only available for subscription plans"
     if "rate limited" in lower or "ratelimited" in compact:
         return "Claude CLI usage endpoint is rate limited right now"
     if "failed to load usage data" in lower or "failedtoloadusagedata" in compact:
@@ -370,4 +386,66 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
         account_organization=account_organization,
         login_method=login_method,
         raw_text=f"{usage_clean}\n{status_clean}".strip(),
+    )
+
+
+def _normalize_gemini_line(line: str) -> str:
+    line = re.sub(r"[│╭╮╰╯─▄]+", " ", line)
+    return re.sub(r"\s+", " ", line).strip()
+
+
+def _extract_gemini_quota_row(lines: list[str], model_markers: tuple[str, ...]) -> tuple[int | None, str | None]:
+    for raw_line in lines:
+        line = _normalize_gemini_line(raw_line)
+        lower = line.lower()
+        if not any(marker in lower for marker in model_markers):
+            continue
+        percent_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)%", line)
+        reset_match = re.search(r"(resets?\s+in\s+\d+h(?:\s+\d+m)?)", line, re.IGNORECASE)
+        percent = int(round(float(percent_match.group(1)))) if percent_match else None
+        reset = reset_match.group(1) if reset_match else None
+        return percent, reset
+    return None, None
+
+
+def parse_gemini_status(text: str) -> GeminiStatus:
+    """Parse Gemini `/stats` output after PTY capture."""
+
+    clean = compact_whitespace(strip_ansi(text))
+    if not clean:
+        raise ValueError("empty Gemini output")
+
+    lines = [_normalize_gemini_line(line) for line in clean.splitlines() if _normalize_gemini_line(line)]
+    flash_percent, flash_reset = _extract_gemini_quota_row(
+        lines,
+        ("gemini-2.5-flash ", "gemini-2.5-flash-lite", "gemini-3-flash-preview"),
+    )
+    pro_percent, pro_reset = _extract_gemini_quota_row(
+        lines,
+        ("gemini-2.5-pro", "gemini-3.1-pro-preview"),
+    )
+
+    account_email = None
+    account_tier = None
+    for line in lines:
+        if line.startswith("Auth Method:"):
+            email_match = re.search(r"\(([^()]+@[^()]+)\)", line)
+            if email_match:
+                account_email = email_match.group(1).strip()
+        elif line.startswith("Tier:"):
+            account_tier = line.split(":", 1)[1].strip() or None
+
+    if flash_percent is None and pro_percent is None:
+        if "session stats" not in clean.lower():
+            raise ValueError("could not find Gemini session stats panel")
+        raise ValueError("could not parse Gemini usage rows")
+
+    return GeminiStatus(
+        flash_percent_left=flash_percent,
+        pro_percent_left=pro_percent,
+        flash_reset=flash_reset,
+        pro_reset=pro_reset,
+        account_email=account_email,
+        account_tier=account_tier,
+        raw_text=clean,
     )

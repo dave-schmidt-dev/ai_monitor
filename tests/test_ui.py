@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 import json
+import os
+from unittest.mock import patch
 import unittest
 
 from ai_monitor.parsing import strip_ansi
@@ -25,6 +27,12 @@ class UIRenderingTests(unittest.TestCase):
             "primary_reset": "Resets 1:16 PM (EDT)",
             "weekly_percent_left": 64,
             "secondary_reset": "Resets Mar 17 at 8 PM",
+        }
+        self.gemini_data = {
+            "flash_percent_left": 98,
+            "flash_reset": "resets in 15h 36m",
+            "pro_percent_left": 83,
+            "pro_reset": "resets in 22h 23m",
         }
 
     def test_shared_usage_row_builder_keeps_labels_aligned(self) -> None:
@@ -90,6 +98,20 @@ class UIRenderingTests(unittest.TestCase):
         self.assertEqual(codex["display"]["weekly_reset_display"], "Mar 17 9:00 PM")
         self.assertEqual(claude["display"]["five_hour_reset_display"], "1:16 PM")
         self.assertEqual(claude["display"]["weekly_reset_display"], "Mar 17 8:00 PM")
+
+    def test_render_screen_uses_two_column_grid_for_three_cards(self) -> None:
+        snapshots = [
+            ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
+            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+            ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data),
+        ]
+
+        with patch("ai_monitor.ui.shutil.get_terminal_size", return_value=os.terminal_size((92, 30))):
+            screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
+
+        self.assertIn("Google CLI usage view", screen)
+        self.assertTrue(any("Codex" in line and "Claude" in line for line in screen.splitlines()))
+        self.assertIn("Gemini", screen)
 
 
 if __name__ == "__main__":

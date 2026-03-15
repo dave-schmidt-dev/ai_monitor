@@ -42,10 +42,10 @@ class WindowRenderSpec:
     window_id: str
     session_label: str
     reset_label: str
-    pace_label: str
+    pace_label: str | None
     percent_key: str
     reset_key: str
-    window_hours: float
+    window_hours: float | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,12 +75,21 @@ PROVIDER_RENDER_SPECS = {
             WindowRenderSpec("weekly", "1w session", "1w resets", "1w pace", "weekly_percent_left", "secondary_reset", 24.0 * 7.0),
         ),
     ),
+    "Gemini": ProviderRenderSpec(
+        title="Gemini",
+        subtitle="Google CLI usage view",
+        accent=PALETTE["teal"],
+        windows=(
+            WindowRenderSpec("flash", "flash pool", "flash reset", None, "flash_percent_left", "flash_reset", None),
+            WindowRenderSpec("pro", "pro pool", "pro reset", None, "pro_percent_left", "pro_reset", None),
+        ),
+    ),
 }
 
 
 def _terminal_width() -> int:
-    cols = shutil.get_terminal_size(fallback=(110, 30)).columns
-    safe_cols = max(68, cols - 20)
+    cols = shutil.get_terminal_size(fallback=(96, 30)).columns
+    safe_cols = max(56, cols - 4)
     return min(safe_cols, 152)
 
 
@@ -327,17 +336,18 @@ def _pace_label(percent_left: int | None, reset_text: str | None, now: datetime,
 
 
 def _metric_row(label: str, percent: int | None, reset_text: str | None, width: int, now: datetime) -> str:
+    label_width = 9
     accent = _color_for_percent(percent)
-    left = f"{PALETTE['muted']}{label:<12}{RESET} {accent}{_plain(None if percent is None else f'{percent}%')}{RESET}"
-    countdown = _countdown_label(reset_text, now)
-    badge = _badge(countdown, PALETTE["ink"]) if countdown else _badge("scheduled", PALETTE["muted"])
-    badge_width = max(10, min(18, _visible_length(badge)))
-    bar_width = max(10, width - 18 - badge_width - 4)
+    value_text = _plain(None if percent is None else f"{percent}%")
+    left = f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    left_width = label_width + 1 + len(value_text)
+    bar_width = max(8, width - left_width - 2)
     bar = _progress_bar(percent, bar_width, accent)
-    return f"{left}  {bar}  {badge}"
+    return f"{left}  {bar}"
 
 
 def _pace_row(label: str, percent: int | None, reset_text: str | None, width: int, now: datetime, window_hours: float | None) -> str:
+    label_width = 9
     pace = _pace_label(percent, reset_text, now, window_hours)
     if "under pace" in pace:
         color = PALETTE["green"]
@@ -347,18 +357,20 @@ def _pace_row(label: str, percent: int | None, reset_text: str | None, width: in
         color = PALETTE["yellow"]
     else:
         color = PALETTE["muted"]
-    plain = _truncate(pace, max(8, width - 14))
-    return f"{PALETTE['muted']}{label:<12}{RESET} {color}{plain}{RESET}"
+    plain = _truncate(pace, max(8, width - (label_width + 3)))
+    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {color}{plain}{RESET}"
 
 
 def _info_row(label: str, value: object | None, width: int) -> str:
-    plain = _truncate(_plain(value), max(8, width - 14))
-    return f"{PALETTE['muted']}{label:<12}{RESET} {PALETTE['ink']}{plain}{RESET}"
+    label_width = 9
+    plain = _truncate(_plain(value), max(8, width - (label_width + 3)))
+    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {PALETTE['ink']}{plain}{RESET}"
 
 
 def _reset_row(label: str, value: object | None, width: int, now: datetime) -> str:
-    plain = _truncate(_format_reset_display(None if value is None else str(value), now), max(8, width - 14))
-    return f"{PALETTE['muted']}{label:<12}{RESET} {PALETTE['cyan']}{plain}{RESET}"
+    label_width = 9
+    plain = _truncate(_format_reset_display(None if value is None else str(value), now), max(8, width - (label_width + 3)))
+    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {PALETTE['cyan']}{plain}{RESET}"
 
 
 def _build_usage_rows(
@@ -375,9 +387,10 @@ def _build_usage_rows(
             (
                 _metric_row(window.session_label, percent, None if reset is None else str(reset), width, now),
                 _reset_row(window.reset_label, reset, width, now),
-                _pace_row(window.pace_label, percent, None if reset is None else str(reset), width, now, window.window_hours),
             )
         )
+        if window.pace_label:
+            rows.append(_pace_row(window.pace_label, percent, None if reset is None else str(reset), width, now, window.window_hours))
     return rows
 
 
@@ -457,6 +470,19 @@ def _merge_columns(left: list[str], right: list[str], gap: int = 2) -> list[str]
     return rows
 
 
+def _merge_card_grid(cards: list[list[str]], gap: int = 2, columns: int = 2) -> list[str]:
+    rows: list[str] = []
+    for start in range(0, len(cards), columns):
+        row_cards = cards[start : start + columns]
+        merged = row_cards[0]
+        for card in row_cards[1:]:
+            merged = _merge_columns(merged, card, gap=gap)
+        if rows:
+            rows.append("")
+        rows.extend(merged)
+    return rows
+
+
 def render_json(snapshots: list[ProviderSnapshot], updated_at: datetime) -> str:
     payload = {
         "updated_at": updated_at.isoformat(),
@@ -481,8 +507,8 @@ def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, el
     card_width = min(68, max(60, width - 8))
     hero = [
         CLEAR,
-        f"{PALETTE['bg']}{PALETTE['ink']}{BOLD} AI Usage Monitor {RESET}  {_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {_badge(f'startup {elapsed_seconds:0.1f}s', PALETTE['cyan'])}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex and Claude sessions{RESET}",
+        f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}  {_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {_badge(f'startup {elapsed_seconds:0.1f}s', PALETTE['cyan'])}",
+        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, and Gemini sessions{RESET}",
         "",
     ]
     rows = [
@@ -503,7 +529,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
     width = _terminal_width()
     now = updated_at
 
-    header_title = f"{PALETTE['bg']}{PALETTE['ink']}{BOLD} AI Usage Monitor {RESET}"
+    header_title = f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}"
     header_meta = (
         f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} "
         f"{_badge(f'refresh {next_refresh_seconds:02d}s', PALETTE['cyan'])}"
@@ -511,14 +537,14 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
     hero = [
         CLEAR,
         f"{header_title}  {header_meta}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex and Claude sessions{RESET}",
+        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, and Gemini sessions{RESET}",
         "",
     ]
 
     cards: list[list[str]] = []
     gap = 2
-    compact_split_width = 46
-    wide_split_width = 48
+    compact_split_width = 40
+    wide_split_width = 42
     split_threshold = (compact_split_width * 2) + gap + 2
     extra_split_threshold = (wide_split_width * 2) + gap + 2
     if width >= extra_split_threshold:
@@ -540,8 +566,8 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
 
         cards.append(_provider_card(snapshot, card_width, now))
 
-    if len(cards) == 2 and width >= split_threshold:
-        body = _merge_columns(cards[0], cards[1], gap=gap)
+    if len(cards) > 1 and width >= split_threshold:
+        body = _merge_card_grid(cards, gap=gap, columns=2)
     else:
         body = []
         for idx, card in enumerate(cards):

@@ -10,7 +10,7 @@ import os
 import sys
 import time
 
-from .providers import ClaudeProvider, CodexProvider, ProviderSnapshot, fetch_provider_snapshot
+from .providers import ClaudeProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
 from .ui import countdown_sleep, render_json, render_loading_screen, render_screen, write_screen
 
 
@@ -40,6 +40,13 @@ def initialize_providers(cwd: str) -> tuple[list[tuple[str, object]], list[objec
         cleanup.append(claude)
     except Exception as exc:  # noqa: BLE001
         providers.append(("Claude", exc))
+
+    try:
+        gemini = GeminiProvider(cwd)
+        providers.append(("Gemini", gemini))
+        cleanup.append(gemini)
+    except Exception as exc:  # noqa: BLE001
+        providers.append(("Gemini", exc))
 
     return providers, cleanup
 
@@ -75,6 +82,7 @@ def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
         "failed to load usage data",
         "could not load usage data",
         "empty claude output",
+        "empty gemini output",
         "missing current session",
         "data not available yet",
     )
@@ -149,7 +157,7 @@ def main() -> int:
             while not future.done():
                 write_screen(
                     render_loading_screen(
-                        "Getting initial usage from Codex and Claude…",
+                        "Getting initial usage from Codex, Claude, and Gemini…",
                         datetime.now(),
                         frame,
                         time.monotonic() - started,

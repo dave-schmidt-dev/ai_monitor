@@ -2,11 +2,20 @@
 
 ## 2026-03-14
 
+- Added Gemini CLI support by probing `/stats` and rendering compact Flash and Pro pool cards.
+- Reworked the dashboard into a compact two-column grid so three providers still fit in smaller terminal windows.
+- Tightened row and card widths to reduce right-edge wrapping in split view.
 - Fixed `NameError: name 're' is not defined` crash on startup by adding missing `import re` to `ui.py`.
 - Refactored provider card rendering through a shared spec-driven row builder so Claude and Codex use the same metric/reset/pace text pipeline.
 - Added UI regression tests to keep shared provider card labels aligned as new providers are added.
 - Canonicalized reset date/time formatting across provider strings, including relative, 24-hour, and vendor-specific reset text variants.
 - Added normalized reset display fields to `--json` output so scripts can reuse the same canonical formatting as the TUI.
+- Replaced Gemini PTY scraping with a direct internal quota probe against the installed Gemini CLI so Gemini cards no longer depend on `/stats` terminal rendering.
+- Added a dedicated Claude warmup phase before sending `/usage` to handle folder trust prompts and startup output.
+- Added early empty-output detection for all providers so blank PTY responses trigger a retry instead of a parse failure.
+- Added debug dump support (`--debug`) that writes raw PTY captures to `/tmp/ai_monitor_*_capture.txt`.
+- Added provider regression coverage for Gemini's mixed log-plus-JSON stdout shape.
+- Confirmed Claude PTY probing works correctly; current `/usage` failures are a server-side Anthropic API issue returning empty limit data for Team seats, not a transport problem.
 
 ## 2026-03-13
 

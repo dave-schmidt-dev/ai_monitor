@@ -1,10 +1,10 @@
-"""Parser tests for representative Codex and Claude output."""
+"""Parser tests for representative Codex, Claude, and Gemini output."""
 
 from __future__ import annotations
 
 import unittest
 
-from ai_monitor.parsing import parse_claude_status, parse_codex_status
+from ai_monitor.parsing import parse_claude_status, parse_codex_status, parse_gemini_status
 
 
 CODEX_SAMPLE = """
@@ -58,6 +58,24 @@ Currentweek(allmodels)·ResetsMar17at4pm
 """
 
 
+GEMINI_STATS_SAMPLE = """
+/stats
+╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+│  Session Stats                                                                                                                                │
+│  Interaction Summary                                                                                                                          │
+│  Session ID:                 0c141004-81ef-41e0-830e-f445518acc49                                                                             │
+│  Auth Method:                Logged in with Google (david.m.schmidty@gmail.com)                                                               │
+│  Tier:                       Gemini Code Assist in Google One AI Pro                                                                          │
+│  Auto (Gemini 3) Usage                                                                                                                        │
+│  Model                       Reqs             Usage remaining                                                                                 │
+│  gemini-2.5-flash               -     98.3% resets in 15h 36m                                                                                 │
+│  gemini-2.5-flash-lite          -     97.4% resets in 15h 36m                                                                                 │
+│  gemini-2.5-pro                 -     83.3% resets in 22h 23m                                                                                 │
+│  gemini-3-flash-preview         -     98.3% resets in 15h 36m                                                                                 │
+│  gemini-3.1-pro-preview         -     83.3% resets in 22h 23m                                                                                 │
+"""
+
+
 class ParsingTests(unittest.TestCase):
     def test_parse_codex_status(self) -> None:
         status = parse_codex_status(CODEX_SAMPLE)
@@ -92,6 +110,19 @@ class ParsingTests(unittest.TestCase):
     def test_claude_usage_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "rate limited"):
             parse_claude_status("Failed to load usage data: rate limited")
+
+    def test_claude_subscription_plan_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "subscription plans"):
+            parse_claude_status("/usage is only vilable for subscription plans.")
+
+    def test_parse_gemini_status(self) -> None:
+        status = parse_gemini_status(GEMINI_STATS_SAMPLE)
+        self.assertEqual(status.flash_percent_left, 98)
+        self.assertEqual(status.pro_percent_left, 83)
+        self.assertEqual(status.flash_reset, "resets in 15h 36m")
+        self.assertEqual(status.pro_reset, "resets in 22h 23m")
+        self.assertEqual(status.account_email, "david.m.schmidty@gmail.com")
+        self.assertEqual(status.account_tier, "Gemini Code Assist in Google One AI Pro")
 
 
 if __name__ == "__main__":

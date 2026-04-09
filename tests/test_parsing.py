@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import unittest
 
-from ai_monitor.parsing import parse_claude_status, parse_codex_status, parse_gemini_status
+from ai_monitor.parsing import (
+    parse_claude_status,
+    parse_codex_status,
+    parse_gemini_status,
+)
 
 
 CODEX_SAMPLE = """
@@ -64,7 +68,7 @@ GEMINI_STATS_SAMPLE = """
 │  Session Stats                                                                                                                                │
 │  Interaction Summary                                                                                                                          │
 │  Session ID:                 0c141004-81ef-41e0-830e-f445518acc49                                                                             │
-│  Auth Method:                Logged in with Google (david.m.schmidty@gmail.com)                                                               │
+│  Auth Method:                Logged in with Google (user@example.com)                                                               │
 │  Tier:                       Gemini Code Assist in Google One AI Pro                                                                          │
 │  Auto (Gemini 3) Usage                                                                                                                        │
 │  Model                       Reqs             Usage remaining                                                                                 │
@@ -121,7 +125,7 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(status.pro_percent_left, 83)
         self.assertEqual(status.flash_reset, "resets in 15h 36m")
         self.assertEqual(status.pro_reset, "resets in 22h 23m")
-        self.assertEqual(status.account_email, "david.m.schmidty@gmail.com")
+        self.assertEqual(status.account_email, "user@example.com")
         self.assertEqual(status.account_tier, "Gemini Code Assist in Google One AI Pro")
 
 

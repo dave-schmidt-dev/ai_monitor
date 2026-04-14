@@ -166,6 +166,17 @@ class UIRenderingTests(unittest.TestCase):
 
         self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
 
+    def test_write_screen_repaint_prepends_clear_for_non_tty(self) -> None:
+        class _NonTTYBuffer(io.StringIO):
+            def isatty(self) -> bool:  # noqa: D401
+                return False
+
+        buffer = _NonTTYBuffer()
+        with patch("ai_monitor.ui.sys.stdout", buffer):
+            write_screen("FRAME", repaint=True)
+
+        self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
+
 
 if __name__ == "__main__":
     unittest.main()

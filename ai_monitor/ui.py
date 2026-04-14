@@ -674,7 +674,7 @@ def render_screen(
 
 
 def write_screen(text: str, *, repaint: bool = False) -> None:
-    if repaint and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+    if repaint:
         sys.stdout.write(CLEAR)
     sys.stdout.write(text)
     sys.stdout.flush()

@@ -11,7 +11,7 @@ import sys
 import time
 
 from .providers import ClaudeProvider, CopilotProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
-from .ui import countdown_sleep, render_json, render_loading_screen, render_screen, write_screen
+from .ui import render_json, render_loading_screen, render_screen, write_screen
 
 
 def parse_args() -> argparse.Namespace:
@@ -187,11 +187,7 @@ def main() -> int:
         while True:
             updated_at = datetime.now()
             write_screen(render_screen(current, updated_at, args.interval))
-
-            def render_frame(remaining: int) -> None:
-                write_screen(render_screen(current, updated_at, remaining))
-
-            countdown_sleep(args.interval, render_frame)
+            time.sleep(args.interval)
             refresh_executor = ThreadPoolExecutor(max_workers=1)
             try:
                 refresh_started = time.monotonic()

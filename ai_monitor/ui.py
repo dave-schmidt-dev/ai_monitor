@@ -363,6 +363,17 @@ def _metric_row(label: str, percent: float | None, reset_text: str | None, width
     return f"{left}  {bar}"
 
 
+def _copilot_metric_row(label: str, percent: float | None, width: int) -> str:
+    label_width = 9
+    accent = _color_for_percent(percent)
+    value_text = _plain(None if percent is None else f"{percent:.1f}%")
+    left = f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    left_width = label_width + 1 + len(value_text)
+    bar_width = max(8, width - left_width - 2)
+    bar = _progress_bar(percent, bar_width, accent)
+    return f"{left}  {bar}"
+
+
 def _pace_row(label: str, percent: float | None, reset_text: str | None, width: int, now: datetime, window_hours: float | None) -> str:
     label_width = 9
     pace = _pace_label(percent, reset_text, now, window_hours)
@@ -481,7 +492,7 @@ def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[st
     reset_value = data.get("premium_reset") or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
     pace_text = _copilot_monthly_pace_label(percent_left, now)
     return [
-        _metric_row("month rem", percent_left, None, width, now),
+        _copilot_metric_row("month rem", percent_left, width),
         _reset_row("month reset", reset_value, width, now),
         _copilot_pace_row("month pace", pace_text, width),
     ]
@@ -670,8 +681,6 @@ def write_screen(text: str) -> None:
 
 
 def countdown_sleep(seconds: int, render_frame: callable) -> None:
-    """Sleep while updating the dashboard countdown once per second."""
+    """Sleep for the interval without repainting the full dashboard."""
 
-    for remaining in range(seconds, 0, -1):
-        render_frame(remaining)
-        time.sleep(1)
+    time.sleep(seconds)

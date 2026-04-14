@@ -10,7 +10,7 @@ import unittest
 
 from ai_monitor.parsing import strip_ansi
 from ai_monitor.providers import ProviderSnapshot
-from ai_monitor.ui import PROVIDER_RENDER_SPECS, _build_usage_rows, _format_reset_display, render_json, render_screen
+from ai_monitor.ui import PROVIDER_RENDER_SPECS, _build_usage_rows, _format_reset_display, countdown_sleep, render_json, render_screen
 
 
 class UIRenderingTests(unittest.TestCase):
@@ -140,6 +140,18 @@ class UIRenderingTests(unittest.TestCase):
         ]
         screen = strip_ansi(render_screen(snapshots, self.updated_at, 0, updating=True, update_elapsed=1.4, update_frame=2))
         self.assertIn("updating", screen)
+
+    def test_countdown_sleep_does_not_emit_intermediate_frames(self) -> None:
+        rendered: list[int] = []
+
+        def render_frame(remaining: int) -> None:
+            rendered.append(remaining)
+
+        with patch("ai_monitor.ui.time.sleep") as sleep_mock:
+            countdown_sleep(5, render_frame)
+
+        self.assertEqual(rendered, [])
+        sleep_mock.assert_called_once_with(5)
 
 
 if __name__ == "__main__":

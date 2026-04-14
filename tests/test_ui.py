@@ -11,7 +11,23 @@ import unittest
 
 from ai_monitor.parsing import strip_ansi
 from ai_monitor.providers import ProviderSnapshot
-from ai_monitor.ui import CLEAR, PROVIDER_RENDER_SPECS, _build_usage_rows, _format_reset_display, countdown_sleep, render_json, render_screen, write_screen
+from ai_monitor.ui import (
+    ALT_SCREEN_ENTER,
+    ALT_SCREEN_EXIT,
+    CLEAR,
+    CURSOR_HIDE,
+    CURSOR_SHOW,
+    FRAME_REPAINT,
+    PROVIDER_RENDER_SPECS,
+    _build_usage_rows,
+    _format_reset_display,
+    countdown_sleep,
+    end_live_ui,
+    render_json,
+    render_screen,
+    start_live_ui,
+    write_screen,
+)
 
 
 class UIRenderingTests(unittest.TestCase):
@@ -164,7 +180,7 @@ class UIRenderingTests(unittest.TestCase):
         with patch("ai_monitor.ui.sys.stdout", buffer):
             write_screen("FRAME", repaint=True)
 
-        self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
+        self.assertEqual(buffer.getvalue(), f"{FRAME_REPAINT}FRAME")
 
     def test_write_screen_repaint_prepends_clear_for_non_tty(self) -> None:
         class _NonTTYBuffer(io.StringIO):
@@ -175,7 +191,14 @@ class UIRenderingTests(unittest.TestCase):
         with patch("ai_monitor.ui.sys.stdout", buffer):
             write_screen("FRAME", repaint=True)
 
-        self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
+        self.assertEqual(buffer.getvalue(), f"{FRAME_REPAINT}FRAME")
+
+    def test_live_ui_session_writes_alt_screen_sequences(self) -> None:
+        buffer = io.StringIO()
+        with patch("ai_monitor.ui.sys.stdout", buffer):
+            start_live_ui()
+            end_live_ui()
+        self.assertEqual(buffer.getvalue(), f"{ALT_SCREEN_ENTER}{CURSOR_HIDE}{CLEAR}{CURSOR_SHOW}{ALT_SCREEN_EXIT}")
 
 
 if __name__ == "__main__":

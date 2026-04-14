@@ -11,7 +11,7 @@ import sys
 import time
 
 from .providers import ClaudeProvider, CopilotProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
-from .ui import countdown_sleep, render_json, render_loading_screen, render_screen, write_screen
+from .ui import countdown_sleep, end_live_ui, render_json, render_loading_screen, render_screen, start_live_ui, write_screen
 
 
 def parse_args() -> argparse.Namespace:
@@ -124,6 +124,7 @@ def _merge_with_previous(
 
 def main() -> int:
     args = parse_args()
+    live_mode = not args.json and not args.once
     cwd = os.getcwd()
     providers, cleanup = initialize_providers(cwd)
 
@@ -156,6 +157,8 @@ def main() -> int:
             snapshots = collect_snapshots(providers, args.debug)
             write_screen(render_json(snapshots, updated_at) + "\n")
             return 0
+        if live_mode:
+            start_live_ui()
 
         executor = ThreadPoolExecutor(max_workers=1)
         try:
@@ -180,7 +183,7 @@ def main() -> int:
         updated_at = datetime.now()
 
         if args.once:
-            write_screen(render_screen(snapshots, updated_at, 0), repaint=True)
+            write_screen(render_screen(snapshots, updated_at, 0), repaint=False)
             write_screen("\n")
             return 0
 
@@ -220,6 +223,8 @@ def main() -> int:
         write_screen("\n")
         return 0
     finally:
+        if live_mode:
+            end_live_ui()
         for provider in cleanup:
             provider.close()
 

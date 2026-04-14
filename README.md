@@ -137,6 +137,7 @@ Example:
 - The first refresh is slower because the local CLI sessions need to start and render their initial TUI state.
 - After startup, the monitor reuses those PTY sessions to make subsequent refreshes faster.
 - During each timed refresh, the header switches from `refresh XXs` to a single in-place `updating …` state until all providers complete, then resumes the countdown.
+- In live mode, the dashboard runs in an alternate-screen session (top-style) so startup/countdown/update repaint cycles do not accumulate frames in your main terminal scrollback.
 
 ## Limitations
 

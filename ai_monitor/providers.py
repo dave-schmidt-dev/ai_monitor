@@ -562,7 +562,9 @@ class CopilotProvider:
                 self.session.close()
                 continue
             try:
-                return parse_copilot_status(merged)
+                status = parse_copilot_status(merged)
+                status.premium_reset = self._monthly_reset_label()
+                return status
             except Exception as exc:  # noqa: BLE001
                 last_error = exc
                 last_raw = merged
@@ -575,6 +577,13 @@ class CopilotProvider:
 
     def close(self) -> None:
         self.session.close()
+
+    @staticmethod
+    def _monthly_reset_label() -> str:
+        now = datetime.now()
+        year = now.year + (1 if now.month == 12 else 0)
+        month = 1 if now.month == 12 else now.month + 1
+        return f"Resets {datetime(year, month, 1, 0, 0).strftime('%b %d %I:%M %p')}"
 
 
 def fetch_provider_snapshot(name: str, fetcher: Any, debug: bool = False) -> ProviderSnapshot:

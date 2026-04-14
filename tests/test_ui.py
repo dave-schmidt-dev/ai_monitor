@@ -35,10 +35,8 @@ class UIRenderingTests(unittest.TestCase):
             "pro_reset": "resets in 22h 23m",
         }
         self.copilot_data = {
-            "premium_requests": 7,
-            "sample_duration_seconds": 120,
-            "premium_percent_left": 98,
-            "premium_reset": "sample 2m",
+            "premium_percent_left": 97.6,
+            "premium_reset": "Resets Apr 01 12:00 AM",
         }
 
     def test_shared_usage_row_builder_keeps_labels_aligned(self) -> None:
@@ -131,8 +129,17 @@ class UIRenderingTests(unittest.TestCase):
             screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
 
         self.assertIn("GitHub Copilot CLI usage view", screen)
-        self.assertIn("premium req", screen)
-        self.assertIn("premium pace", screen)
+        self.assertIn("month rem", screen)
+        self.assertIn("month pace", screen)
+        self.assertIn("97.6%", screen)
+
+    def test_render_screen_shows_updating_badge(self) -> None:
+        snapshots = [
+            ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
+            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+        ]
+        screen = strip_ansi(render_screen(snapshots, self.updated_at, 0, updating=True, update_elapsed=1.4, update_frame=2))
+        self.assertIn("updating", screen)
 
 
 if __name__ == "__main__":

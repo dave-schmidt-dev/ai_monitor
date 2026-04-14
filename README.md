@@ -19,7 +19,7 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Refreshes every 120 seconds by default
 - Shows Codex and Claude 5-hour and 1-week session usage, reset times, and pace indicators
 - Shows Gemini Flash and Pro pool remaining percentages with reset countdowns
-- Shows Copilot premium request count/remaining snapshot with pace row in the same card style
+- Shows Copilot monthly premium remaining (`month rem`), monthly reset (`month reset`), and monthly pace (`month pace`) in the same card style
 - Uses a shared provider card renderer so reset labels and pacing rows stay aligned across providers
 - Canonicalizes reset displays to one local format across provider-specific strings
 - Renders a compact grid dashboard optimized for terminal use
@@ -60,7 +60,7 @@ When `--debug` is enabled, raw PTY captures are also written to `/tmp/ai_monitor
 1. Start a persistent PTY-backed session for each CLI.
 2. Send `/status` to Codex and `/usage` to Claude.
 3. Probe Gemini through the installed CLI's internal quota/config path, with PTY `/stats` as a fallback.
-4. Probe Copilot through an interactive PTY warmup and parse premium request signals from the status line.
+4. Probe Copilot through an interactive PTY warmup and parse remaining premium percentage from the status line.
 5. Capture the rendered terminal output or structured quota payload.
 6. Strip ANSI/control sequences and normalize the text.
 7. Parse usage percentages and reset windows.
@@ -88,10 +88,9 @@ Gemini cards show:
 
 Copilot card shows:
 
-- `premium req`: premium request count seen in status-line sampling
-- `premium rem`: remaining premium percentage when exposed by the CLI status line
-- `premium note`: sampling note
-- `premium pace`: derived pace row for consistency with other cards
+- `month rem`: remaining premium percentage, rendered with one decimal place
+- `month reset`: monthly reset target (first day of next month at 12:00 AM local time)
+- `month pace`: pace vs expected month progress (`under pace`, `on pace`, or `over pace`)
 
 Reset displays are normalized before rendering:
 
@@ -132,11 +131,12 @@ Example:
 - `codex` is launched with `-s read-only -a untrusted --no-alt-screen` to keep the probe conservative.
 - `claude` is launched in an interactive PTY and the probe auto-accepts the folder trust prompt if it appears.
 - `gemini` prefers a direct internal quota probe against the installed Gemini CLI and only falls back to PTY `/stats` scraping if that direct path fails.
-- `copilot` probing parses premium request metadata from the interactive status line rather than a dedicated usage endpoint.
+- `copilot` probing parses passive status-line metadata only (no prompt submission or usage endpoint calls).
 - Gemini internal probing supports both legacy `dist/src/config/*.js` layouts and modern bundled Homebrew layouts (`bundle/chunk-*.js`).
 - Claude `/usage` parsing tolerates compressed single-line usage panels where session/week rows are rendered without line breaks.
 - The first refresh is slower because the local CLI sessions need to start and render their initial TUI state.
 - After startup, the monitor reuses those PTY sessions to make subsequent refreshes faster.
+- During each timed refresh, the header switches from `refresh XXs` to `updating …` until all providers complete, then resumes the countdown.
 
 ## Limitations
 
@@ -144,7 +144,7 @@ Example:
 - If any vendor changes its TUI wording or layout, the parser may need to be updated.
 - Reset windows are only shown when the CLI output exposes them.
 - Terminal rendering can vary across fonts and terminal emulators.
-- Copilot may expose only a remaining-percent signal (without reset time), so its pace row can show `pace n/a`.
+- Copilot currently relies on the status-line remaining percentage signal; if Copilot CLI omits it, `month rem` and `month pace` can still show `n/a`.
 
 ## Known Issues
 

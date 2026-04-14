@@ -158,12 +158,12 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(status.premium_requests, 7)
         self.assertEqual(status.sample_duration_seconds, 120)
         self.assertIsNone(status.premium_percent_left)
-        self.assertEqual(status.premium_reset, "sample 2m")
+        self.assertIsNone(status.premium_reset)
 
     def test_parse_copilot_remaining_percent(self) -> None:
         status = parse_copilot_status(COPILOT_REMAINING_SAMPLE)
         self.assertIsNone(status.premium_requests)
-        self.assertEqual(status.premium_percent_left, 98)
+        self.assertEqual(status.premium_percent_left, 97.6)
 
 
 if __name__ == "__main__":

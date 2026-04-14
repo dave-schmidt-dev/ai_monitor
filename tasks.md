@@ -8,3 +8,5 @@
 - [x] Make Gemini auth-related probe failures explicit instead of generic stats parse errors.
 - [x] Repair all provider probes after CLI output changes (Codex PTY noise, Claude compact usage panel, Gemini bundled internal quota probe).
 - [x] Add GitHub Copilot as a fourth monitored provider with premium request parsing and dashboard rows aligned with the other cards.
+- [x] Refine Copilot card semantics to monthly remaining/reset/pace with one-decimal percentage output.
+- [x] Show an explicit updating state during timed refresh instead of a frozen countdown at 0s.

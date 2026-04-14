@@ -152,7 +152,7 @@ class GeminiStatus:
 class CopilotStatus:
     premium_requests: int | None
     sample_duration_seconds: int | None
-    premium_percent_left: int | None
+    premium_percent_left: float | None
     premium_reset: str | None
     raw_text: str
 
@@ -574,13 +574,12 @@ def parse_copilot_status(text: str) -> CopilotStatus:
     premium_requests = int(request_matches[-1][0]) if request_matches else None
     duration_text = request_matches[-1][1] if request_matches else None
     duration_seconds = _parse_duration_seconds(duration_text)
-    premium_note = f"sample {duration_text.strip()}" if duration_text else None
-    premium_percent_left = int(round(float(remaining_matches[-1]))) if remaining_matches else None
+    premium_percent_left = float(remaining_matches[-1]) if remaining_matches else None
 
     return CopilotStatus(
         premium_requests=premium_requests,
         sample_duration_seconds=duration_seconds,
         premium_percent_left=premium_percent_left,
-        premium_reset=premium_note,
+        premium_reset=None,
         raw_text=clean,
     )

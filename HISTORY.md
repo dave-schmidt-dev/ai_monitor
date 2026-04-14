@@ -2,6 +2,10 @@
 
 ## 2026-04-14
 
+- Refined the Copilot card to monthly semantics (`month rem`, `month reset`, `month pace`) and switched remaining display to one decimal place.
+- Added Copilot monthly pace calculation against expected month progress, plus monthly reset normalization to first-of-month local midnight.
+- Updated the live refresh loop to show an explicit `updating …` header state while provider probes are running, then restore the countdown when refresh completes.
+- Confirmed Copilot probing remains passive status-line sampling only (no prompt send path that would consume premium requests).
 - Improved Gemini probe failures by detecting the CLI "Waiting for authentication..." screen and surfacing a direct sign-in instruction instead of a generic stats-panel parse error.
 - Added provider helper tests to cover Gemini authentication-wait detection.
 - Fixed Gemini direct quota probing for bundled Gemini CLI installs (for example Homebrew v0.37.x), restoring Flash/Pro usage without relying on `/stats` PTY scraping.

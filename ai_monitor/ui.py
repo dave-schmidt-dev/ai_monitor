@@ -89,7 +89,7 @@ PROVIDER_RENDER_SPECS = {
         subtitle="GitHub Copilot CLI usage view",
         accent=PALETTE["cyan"],
         windows=(
-            WindowRenderSpec("premium", "premium req", "premium note", "premium pace", "premium_percent_left", "premium_reset", None),
+            WindowRenderSpec("premium", "month rem", "month reset", "month pace", "premium_percent_left", "premium_reset", None),
         ),
     ),
 }
@@ -107,7 +107,7 @@ def _plain(value: object | None) -> str:
     return str(value)
 
 
-def _color_for_percent(percent: int | None) -> str:
+def _color_for_percent(percent: float | None) -> str:
     if percent is None:
         return PALETTE["muted"]
     if percent >= 70:
@@ -416,7 +416,7 @@ def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -
     assert snapshot.data is not None
     badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
     if snapshot.name == "Copilot":
-        rows = _copilot_rows(snapshot.data, card_width - 4)
+        rows = _copilot_rows(snapshot.data, card_width - 4, now)
         return _card("Copilot", "GitHub Copilot CLI usage view", rows, card_width, PALETTE["cyan"], True, badge_text)
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
     if spec is None:
@@ -427,27 +427,53 @@ def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -
     return _card(spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text)
 
 
-def _copilot_rows(data: dict[str, object], width: int) -> list[str]:
-    requests = data.get("premium_requests")
-    duration = data.get("sample_duration_seconds")
+def _copilot_monthly_reset_target(now: datetime) -> datetime:
+    year = now.year + (1 if now.month == 12 else 0)
+    month = 1 if now.month == 12 else now.month + 1
+    return datetime(year, month, 1, 0, 0)
+
+
+def _copilot_monthly_pace_label(percent_left: float | None, now: datetime) -> str:
+    if percent_left is None:
+        return "pace n/a"
+    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = _copilot_monthly_reset_target(now)
+    total_seconds = max(1.0, (end - start).total_seconds())
+    remaining_seconds = max(0.0, (end - now).total_seconds())
+    expected_remaining = (remaining_seconds / total_seconds) * 100.0
+    delta = percent_left - expected_remaining
+    diff_points = round(abs(delta), 1)
+    if abs(delta) <= 5.0:
+        return "on pace"
+    if delta > 0:
+        return f"under pace +{diff_points:.1f}pt"
+    return f"over pace -{diff_points:.1f}pt"
+
+
+def _copilot_pace_row(label: str, pace_text: str, width: int) -> str:
+    label_width = 10
+    if "under pace" in pace_text:
+        color = PALETTE["green"]
+    elif "over pace" in pace_text:
+        color = PALETTE["red"]
+    elif "on pace" in pace_text:
+        color = PALETTE["yellow"]
+    else:
+        color = PALETTE["muted"]
+    plain = _truncate(pace_text, max(8, width - (label_width + 3)))
+    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {color}{plain}{RESET}"
+
+
+def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[str]:
     remaining = data.get("premium_percent_left")
-
-    req_text = _plain(requests)
-    remaining_text = _plain(None if remaining is None else f"{remaining}%")
-    note_text = "status-line sample"
-    if isinstance(duration, int) and duration > 0:
-        note_text = f"sample {duration}s"
-
-    pace_text = "pace n/a"
-    if isinstance(requests, int) and isinstance(duration, int) and duration > 0:
-        per_hour = (requests * 3600.0) / duration
-        pace_text = f"{per_hour:.1f} req/h"
-
+    percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
+    remaining_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    reset_value = data.get("premium_reset") or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p')}"
+    pace_text = _copilot_monthly_pace_label(percent_left, now)
     return [
-        _info_row("premium req", req_text, width),
-        _info_row("premium rem", remaining_text, width),
-        _info_row("premium note", note_text, width),
-        _info_row("premium pace", pace_text, width),
+        _info_row("month rem", remaining_text, width),
+        _reset_row("month reset", reset_value, width, now),
+        _copilot_pace_row("month pace", pace_text, width),
     ]
 
 
@@ -560,15 +586,25 @@ def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, el
     return "\n".join(_apply_right_gutter(lines, width))
 
 
-def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_refresh_seconds: int) -> str:
+def render_screen(
+    snapshots: list[ProviderSnapshot],
+    updated_at: datetime,
+    next_refresh_seconds: int,
+    *,
+    updating: bool = False,
+    update_elapsed: float = 0.0,
+    update_frame: int = 0,
+) -> str:
     width = _terminal_width()
     now = updated_at
 
     header_title = f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}"
-    header_meta = (
-        f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} "
-        f"{_badge(f'refresh {next_refresh_seconds:02d}s', PALETTE['cyan'])}"
-    )
+    if updating:
+        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[update_frame % 10]
+        refresh_badge = _badge(f"updating {spinner} {update_elapsed:0.1f}s", PALETTE["cyan"])
+    else:
+        refresh_badge = _badge(f"refresh {next_refresh_seconds:02d}s", PALETTE["cyan"])
+    header_meta = f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {refresh_badge}"
     hero = [
         CLEAR,
         f"{header_title}  {header_meta}",

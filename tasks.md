@@ -13,4 +13,4 @@
 - [x] Fix updating-state redraw spam and keep refresh in-place without flooding full frames.
 - [x] Switch Copilot month reset target to UTC and add a color progress bar for `month rem`.
 - [x] Restore live startup and countdown timers while preserving in-place terminal repaint behavior.
-- [x] Switch live rendering to an alternate-screen session so animated repaint cycles cannot scroll frames down the main terminal buffer.
+- [x] Replace terminal repaint strategy with cursor-relative redraw to keep animated frames in-place across terminals with inconsistent absolute-home/alternate-screen support.

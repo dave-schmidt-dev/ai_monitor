@@ -14,14 +14,11 @@ from .providers import ProviderSnapshot
 
 
 CLEAR = "\033[2J\033[H"
-FRAME_REPAINT = "\033[H\033[J"
-ALT_SCREEN_ENTER = "\033[?1049h"
-ALT_SCREEN_EXIT = "\033[?1049l"
-CURSOR_HIDE = "\033[?25l"
-CURSOR_SHOW = "\033[?25h"
+FRAME_REPAINT = "\r"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
+_LAST_FRAME_LINES = 0
 
 PALETTE = {
     "bg": "\033[48;5;17m",
@@ -679,19 +676,18 @@ def render_screen(
 
 
 def write_screen(text: str, *, repaint: bool = False) -> None:
+    global _LAST_FRAME_LINES  # noqa: PLW0603
     if repaint:
-        sys.stdout.write(FRAME_REPAINT)
+        if _LAST_FRAME_LINES > 1:
+            sys.stdout.write(FRAME_REPAINT)
+            sys.stdout.write(f"\033[{_LAST_FRAME_LINES - 1}A")
+            sys.stdout.write("\r")
+        else:
+            sys.stdout.write(FRAME_REPAINT)
+        sys.stdout.write("\033[J")
     sys.stdout.write(text)
-    sys.stdout.flush()
-
-
-def start_live_ui() -> None:
-    sys.stdout.write(f"{ALT_SCREEN_ENTER}{CURSOR_HIDE}{CLEAR}")
-    sys.stdout.flush()
-
-
-def end_live_ui() -> None:
-    sys.stdout.write(f"{CURSOR_SHOW}{ALT_SCREEN_EXIT}")
+    if repaint:
+        _LAST_FRAME_LINES = max(1, text.count("\n") + 1)
     sys.stdout.flush()
 
 

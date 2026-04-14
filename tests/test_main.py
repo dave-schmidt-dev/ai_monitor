@@ -55,30 +55,8 @@ class MainRegressionTests(unittest.TestCase):
         self.assertEqual(write_screen.call_count, 5)
         self.assertEqual(write_screen.call_args_list[0].args[0], "LOADING")
         self.assertEqual(write_screen.call_args_list[-2].args[0], "FINAL")
-        self.assertEqual(write_screen.call_args_list[-2].kwargs.get("repaint"), False)
+        self.assertEqual(write_screen.call_args_list[-2].kwargs.get("repaint"), True)
         self.assertEqual(write_screen.call_args_list[-1].args[0], "\n")
-
-    def test_live_mode_enters_and_exits_alt_screen_session(self) -> None:
-        snapshots = [ProviderSnapshot(name="Codex", ok=True, source="cli", data={"five_hour_percent_left": 75})]
-        fake_future = _FakeFuture(snapshots)
-        fake_executor = _FakeExecutor(fake_future)
-
-        with (
-            patch("ai_monitor.__main__.parse_args", return_value=argparse.Namespace(json=False, once=False, debug=False, interval=120)),
-            patch("ai_monitor.__main__.initialize_providers", return_value=([], [])),
-            patch("ai_monitor.__main__.ThreadPoolExecutor", return_value=fake_executor),
-            patch("ai_monitor.__main__.countdown_sleep", side_effect=KeyboardInterrupt),
-            patch("ai_monitor.__main__.render_loading_screen", return_value="LOADING"),
-            patch("ai_monitor.__main__.render_screen", return_value="FINAL"),
-            patch("ai_monitor.__main__.write_screen"),
-            patch("ai_monitor.__main__.start_live_ui") as start_live_ui,
-            patch("ai_monitor.__main__.end_live_ui") as end_live_ui,
-        ):
-            rc = main()
-
-        self.assertEqual(rc, 0)
-        start_live_ui.assert_called_once()
-        end_live_ui.assert_called_once()
 
 
 if __name__ == "__main__":

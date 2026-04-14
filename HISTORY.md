@@ -2,9 +2,8 @@
 
 ## 2026-04-14
 
-- Moved live dashboard rendering to an alternate-screen session with explicit cursor hide/show and frame-home repainting to prevent frame accumulation in terminal scrollback.
-- Kept live startup, countdown, and updating spinners while repainting within a stable full-screen session (top-style behavior).
-- Added regressions for live-mode session lifecycle (enter/exit alt screen) and repaint control-sequence output.
+- Replaced absolute-home/alternate-screen repainting with cursor-relative redraw (`cursor-up + clear-to-end`) to keep startup/countdown/refresh animations in-place on terminals that ignore or partially implement those older control paths.
+- Added regressions for repaint control-sequence behavior, including multi-line cursor-up redraw between frames.
 - Reworked terminal repainting so dashboard updates now clear and redraw in-place via `write_screen(..., repaint=True)`, preventing downward frame accumulation during startup, countdown, and refresh updates.
 - Restored live startup spinner timing and live countdown updates after the repaint regression fixes.
 - Added regressions for startup animation, countdown tick rendering, and TTY repaint escape behavior.

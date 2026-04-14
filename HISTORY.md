@@ -2,6 +2,9 @@
 
 ## 2026-04-14
 
+- Reworked terminal repainting so dashboard updates now clear and redraw in-place via `write_screen(..., repaint=True)`, preventing downward frame accumulation during startup, countdown, and refresh updates.
+- Restored live startup spinner timing and live countdown updates after the repaint regression fixes.
+- Added regressions for startup animation, countdown tick rendering, and TTY repaint escape behavior.
 - Fixed the refresh-loop regression that repeatedly repainted the full dashboard at 10Hz during provider updates; refresh now shows a single in-place `updating` state until the probe batch finishes.
 - Switched Copilot monthly reset semantics to UTC midnight (first day of next month, `UTC`) to match GitHub premium reset behavior.
 - Added a Copilot `month rem` color progress bar so Copilot remaining usage visually matches the other provider cards.

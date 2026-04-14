@@ -35,7 +35,7 @@ class _FakeExecutor:
 
 
 class MainRegressionTests(unittest.TestCase):
-    def test_startup_loading_renders_once_before_once_output(self) -> None:
+    def test_startup_loading_animates_before_once_output(self) -> None:
         snapshots = [ProviderSnapshot(name="Codex", ok=True, source="cli", data={"five_hour_percent_left": 75})]
         fake_future = _FakeFuture(snapshots)
         fake_executor = _FakeExecutor(fake_future)
@@ -51,10 +51,12 @@ class MainRegressionTests(unittest.TestCase):
             rc = main()
 
         self.assertEqual(rc, 0)
-        self.assertEqual(fake_future.done_calls, 0)
-        self.assertEqual(write_screen.call_count, 2)
+        self.assertEqual(fake_future.done_calls, 4)
+        self.assertEqual(write_screen.call_count, 5)
         self.assertEqual(write_screen.call_args_list[0].args[0], "LOADING")
-        self.assertEqual(write_screen.call_args_list[1].args[0], "FINAL\n")
+        self.assertEqual(write_screen.call_args_list[-2].args[0], "FINAL")
+        self.assertEqual(write_screen.call_args_list[-2].kwargs.get("repaint"), True)
+        self.assertEqual(write_screen.call_args_list[-1].args[0], "\n")
 
 
 if __name__ == "__main__":

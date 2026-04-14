@@ -11,7 +11,7 @@ import sys
 import time
 
 from .providers import ClaudeProvider, CopilotProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
-from .ui import render_json, render_loading_screen, render_screen, write_screen
+from .ui import countdown_sleep, render_json, render_loading_screen, render_screen, write_screen
 
 
 def parse_args() -> argparse.Namespace:
@@ -161,43 +161,58 @@ def main() -> int:
         try:
             future = executor.submit(collect_snapshots, providers, args.debug)
             started = time.monotonic()
-            write_screen(
-                render_loading_screen(
-                    "Getting initial usage from Codex, Claude, Gemini, and Copilot…",
-                    datetime.now(),
-                    0,
-                    time.monotonic() - started,
-                ),
-            )
+            frame = 0
+            while not future.done():
+                write_screen(
+                    render_loading_screen(
+                        "Getting initial usage from Codex, Claude, Gemini, and Copilot…",
+                        datetime.now(),
+                        frame,
+                        time.monotonic() - started,
+                    ),
+                    repaint=True,
+                )
+                time.sleep(0.12)
+                frame += 1
             snapshots = future.result()
         finally:
             executor.shutdown(wait=False, cancel_futures=True)
         updated_at = datetime.now()
 
         if args.once:
-            write_screen(render_screen(snapshots, updated_at, 0) + "\n")
+            write_screen(render_screen(snapshots, updated_at, 0), repaint=True)
+            write_screen("\n")
             return 0
 
         current = snapshots
 
         while True:
             updated_at = datetime.now()
-            write_screen(render_screen(current, updated_at, args.interval))
-            time.sleep(args.interval)
+            write_screen(render_screen(current, updated_at, args.interval), repaint=True)
+
+            def render_frame(remaining: int) -> None:
+                write_screen(render_screen(current, updated_at, remaining), repaint=True)
+
+            countdown_sleep(args.interval, render_frame)
             refresh_executor = ThreadPoolExecutor(max_workers=1)
             try:
                 refresh_started = time.monotonic()
                 refresh_future = refresh_executor.submit(refresh, current)
-                write_screen(
-                    render_screen(
-                        current,
-                        datetime.now(),
-                        0,
-                        updating=True,
-                        update_elapsed=time.monotonic() - refresh_started,
-                        update_frame=0,
+                frame = 0
+                while not refresh_future.done():
+                    write_screen(
+                        render_screen(
+                            current,
+                            datetime.now(),
+                            0,
+                            updating=True,
+                            update_elapsed=time.monotonic() - refresh_started,
+                            update_frame=frame,
+                        ),
+                        repaint=True,
                     )
-                )
+                    time.sleep(0.12)
+                    frame += 1
                 current = refresh_future.result()
             finally:
                 refresh_executor.shutdown(wait=False, cancel_futures=True)

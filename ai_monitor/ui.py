@@ -588,7 +588,6 @@ def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, el
     width = _terminal_width()
     card_width = min(68, max(60, width - 8))
     hero = [
-        CLEAR,
         f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}  {_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {_badge(f'startup {elapsed_seconds:0.1f}s', PALETTE['cyan'])}",
         f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
         "",
@@ -627,7 +626,6 @@ def render_screen(
         refresh_badge = _badge(f"refresh {next_refresh_seconds:02d}s", PALETTE["cyan"])
     header_meta = f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {refresh_badge}"
     hero = [
-        CLEAR,
         f"{header_title}  {header_meta}",
         f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
         "",
@@ -675,12 +673,16 @@ def render_screen(
     return "\n".join(_apply_right_gutter(lines, width))
 
 
-def write_screen(text: str) -> None:
+def write_screen(text: str, *, repaint: bool = False) -> None:
+    if repaint and hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+        sys.stdout.write(CLEAR)
     sys.stdout.write(text)
     sys.stdout.flush()
 
 
 def countdown_sleep(seconds: int, render_frame: callable) -> None:
-    """Sleep for the interval without repainting the full dashboard."""
+    """Sleep while updating the dashboard countdown once per second."""
 
-    time.sleep(seconds)
+    for remaining in range(seconds, 0, -1):
+        render_frame(remaining)
+        time.sleep(1)

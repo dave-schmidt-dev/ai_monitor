@@ -12,3 +12,4 @@
 - [x] Show an explicit updating state during timed refresh instead of a frozen countdown at 0s.
 - [x] Fix updating-state redraw spam and keep refresh in-place without flooding full frames.
 - [x] Switch Copilot month reset target to UTC and add a color progress bar for `month rem`.
+- [x] Restore live startup and countdown timers while preserving in-place terminal repaint behavior.

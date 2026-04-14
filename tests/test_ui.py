@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import io
 import json
 import os
 from unittest.mock import patch
@@ -10,7 +11,7 @@ import unittest
 
 from ai_monitor.parsing import strip_ansi
 from ai_monitor.providers import ProviderSnapshot
-from ai_monitor.ui import PROVIDER_RENDER_SPECS, _build_usage_rows, _format_reset_display, countdown_sleep, render_json, render_screen
+from ai_monitor.ui import CLEAR, PROVIDER_RENDER_SPECS, _build_usage_rows, _format_reset_display, countdown_sleep, render_json, render_screen, write_screen
 
 
 class UIRenderingTests(unittest.TestCase):
@@ -141,7 +142,7 @@ class UIRenderingTests(unittest.TestCase):
         screen = strip_ansi(render_screen(snapshots, self.updated_at, 0, updating=True, update_elapsed=1.4, update_frame=2))
         self.assertIn("updating", screen)
 
-    def test_countdown_sleep_does_not_emit_intermediate_frames(self) -> None:
+    def test_countdown_sleep_emits_each_second(self) -> None:
         rendered: list[int] = []
 
         def render_frame(remaining: int) -> None:
@@ -150,8 +151,20 @@ class UIRenderingTests(unittest.TestCase):
         with patch("ai_monitor.ui.time.sleep") as sleep_mock:
             countdown_sleep(5, render_frame)
 
-        self.assertEqual(rendered, [])
-        sleep_mock.assert_called_once_with(5)
+        self.assertEqual(rendered, [5, 4, 3, 2, 1])
+        self.assertEqual(sleep_mock.call_count, 5)
+        sleep_mock.assert_called_with(1)
+
+    def test_write_screen_repaint_prepends_clear_for_tty(self) -> None:
+        class _TTYBuffer(io.StringIO):
+            def isatty(self) -> bool:  # noqa: D401
+                return True
+
+        buffer = _TTYBuffer()
+        with patch("ai_monitor.ui.sys.stdout", buffer):
+            write_screen("FRAME", repaint=True)
+
+        self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
 
 
 if __name__ == "__main__":

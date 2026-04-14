@@ -13,6 +13,7 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Monitors Codex usage via `/status`
 - Monitors Claude usage via `/usage`
 - Monitors Gemini usage via `/stats`
+- Handles Codex transient PTY probe noise and retries until a real status panel is captured
 - Reuses persistent PTY sessions to reduce refresh latency after startup
 - Refreshes every 120 seconds by default
 - Shows Codex and Claude 5-hour and 1-week session usage, reset times, and pace indicators
@@ -113,6 +114,8 @@ Example:
 - `codex` is launched with `-s read-only -a untrusted --no-alt-screen` to keep the probe conservative.
 - `claude` is launched in an interactive PTY and the probe auto-accepts the folder trust prompt if it appears.
 - `gemini` prefers a direct internal quota probe against the installed Gemini CLI and only falls back to PTY `/stats` scraping if that direct path fails.
+- Gemini internal probing supports both legacy `dist/src/config/*.js` layouts and modern bundled Homebrew layouts (`bundle/chunk-*.js`).
+- Claude `/usage` parsing tolerates compressed single-line usage panels where session/week rows are rendered without line breaks.
 - The first refresh is slower because the local CLI sessions need to start and render their initial TUI state.
 - After startup, the monitor reuses those PTY sessions to make subsequent refreshes faster.
 
@@ -127,6 +130,7 @@ Example:
 
 - **Claude `/usage` may return "only available for subscription plans"** even on valid Team or Pro seats. This is a server-side issue where the Anthropic usage API returns empty limit buckets (`five_hour`, `seven_day`, `seven_day_sonnet` are all null). The PTY probe itself works correctly. When the API starts returning data again, the Claude card will populate automatically.
 - Gemini prefers a direct internal quota probe and only falls back to PTY `/stats` scraping if that path is unavailable.
+- If Gemini falls back to PTY probing and shows a **waiting for authentication** screen, `ai_monitor` now reports that directly. Run `gemini` once and complete sign-in, then rerun the monitor.
 
 ## Validation
 

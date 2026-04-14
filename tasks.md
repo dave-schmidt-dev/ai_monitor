@@ -5,3 +5,5 @@
 - [x] Add parser coverage for representative Codex and Claude output.
 - [x] Document setup and usage.
 - [x] Prepare the repo for GitHub with screenshots, docs, and ignore rules.
+- [x] Make Gemini auth-related probe failures explicit instead of generic stats parse errors.
+- [x] Repair all provider probes after CLI output changes (Codex PTY noise, Claude compact usage panel, Gemini bundled internal quota probe).

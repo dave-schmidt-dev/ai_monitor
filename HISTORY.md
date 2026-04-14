@@ -1,5 +1,13 @@
 # History
 
+## 2026-04-14
+
+- Improved Gemini probe failures by detecting the CLI "Waiting for authentication..." screen and surfacing a direct sign-in instruction instead of a generic stats-panel parse error.
+- Added provider helper tests to cover Gemini authentication-wait detection.
+- Fixed Gemini direct quota probing for bundled Gemini CLI installs (for example Homebrew v0.37.x), restoring Flash/Pro usage without relying on `/stats` PTY scraping.
+- Fixed Claude usage parsing for compressed single-line panels so 5h/1w percentages and reset fields no longer collapse into one mixed value.
+- Hardened Codex probing against transient PTY control-sequence noise and added a startup warmup/retry path so `/status` reliably captures full 5h and weekly limits.
+
 ## 2026-03-14
 
 - Added Gemini CLI support by probing `/stats` and rendering compact Flash and Pro pool cards.

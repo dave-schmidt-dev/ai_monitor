@@ -288,6 +288,59 @@ def _find_line_index(lines: list[str], *labels: str) -> int | None:
     return None
 
 
+def _normalize_compact_reset(value: str) -> str:
+    reset = extract_reset_from_line(f"Resets {value.strip()}")
+    if reset:
+        return reset
+    compact = re.sub(r"\s+", " ", value).strip()
+    compact = re.sub(r"(?i)(\d)(am|pm)\b", r"\1 \2", compact)
+    compact = _shorten_timezone_labels(compact)
+    return f"Resets {compact}".strip()
+
+
+def _extract_compact_claude_rows(panel: str) -> dict[str, tuple[int | None, str | None]]:
+    label_re = re.compile(
+        r"Current session|Current week \(all models\)|Current week \(Opus\)|Current week \(Sonnet only\)|Current week \(Sonnet\)",
+        re.IGNORECASE,
+    )
+    squashed = re.sub(r"\s+", " ", panel).strip()
+    matches = list(label_re.finditer(squashed))
+    if not matches:
+        return {}
+
+    rows: dict[str, tuple[int | None, str | None]] = {}
+    for idx, match in enumerate(matches):
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(squashed)
+        segment = squashed[match.start() : end]
+        label = match.group(0).lower()
+        percent_left = None
+        percent_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*used", segment, re.IGNORECASE)
+        if percent_match:
+            percent_left = max(0, min(100, int(round(100 - float(percent_match.group(1))))))
+        else:
+            left_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*(?:left|remaining|available)", segment, re.IGNORECASE)
+            if left_match:
+                percent_left = max(0, min(100, int(round(float(left_match.group(1))))))
+
+        reset = None
+        reset_match = re.search(
+            r"Resets?\s*(.+?)\s*[0-9]{1,3}(?:\.[0-9]+)?\s*%\s*(?:used|left|remaining|available)",
+            segment,
+            re.IGNORECASE,
+        )
+        if reset_match:
+            reset = _normalize_compact_reset(reset_match.group(1))
+        rows[label] = (percent_left, reset)
+    return rows
+
+
+def _is_overcaptured_reset(value: str | None) -> bool:
+    if not value:
+        return False
+    lowered = value.lower()
+    return "current week" in lowered or "%used" in lowered or "extra usage" in lowered
+
+
 def _extract_usage_error(text: str) -> str | None:
     lower = text.lower()
     compact = "".join(lower.split())
@@ -362,6 +415,27 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
     if has_opus and opus is None and len(ordered) > 2:
         opus = ordered[2]
 
+    compact_rows = _extract_compact_claude_rows(panel)
+    session_row = compact_rows.get("current session")
+    weekly_row = compact_rows.get("current week (all models)")
+    opus_row = (
+        compact_rows.get("current week (opus)")
+        or compact_rows.get("current week (sonnet only)")
+        or compact_rows.get("current week (sonnet)")
+    )
+    if session is None and session_row:
+        session = session_row[0]
+    if has_weekly and weekly is None and weekly_row:
+        weekly = weekly_row[0]
+    if has_opus and opus is None and opus_row:
+        opus = opus_row[0]
+    if has_weekly and weekly_row and weekly_row[0] is not None and session_row and session_row[0] is not None:
+        if weekly == session and weekly_row[0] != session_row[0]:
+            weekly = weekly_row[0]
+    if has_opus and opus_row and opus_row[0] is not None and session_row and session_row[0] is not None:
+        if opus == session and opus_row[0] != session_row[0]:
+            opus = opus_row[0]
+
     if session is None:
         raise ValueError("Missing Current session in Claude output")
 
@@ -372,6 +446,13 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
         or _extract_reset_for_label(lines, "Current week (Sonnet only)")
         or _extract_reset_for_label(lines, "Current week (Sonnet)")
     ) if has_opus else None
+
+    if (not primary_reset or _is_overcaptured_reset(primary_reset)) and session_row:
+        primary_reset = session_row[1]
+    if has_weekly and (not secondary_reset or _is_overcaptured_reset(secondary_reset)) and weekly_row:
+        secondary_reset = weekly_row[1]
+    if has_opus and (not opus_reset or _is_overcaptured_reset(opus_reset)) and opus_row:
+        opus_reset = opus_row[1]
 
     account_email, account_organization, login_method = _extract_identity(f"{usage_clean}\n{status_clean}")
 

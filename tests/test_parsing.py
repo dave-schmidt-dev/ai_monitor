@@ -62,6 +62,12 @@ Currentweek(allmodels)·ResetsMar17at4pm
 """
 
 
+CLAUDE_COMPACT_SINGLE_LINE_SAMPLE = """
+❯ /usage ───────────────────── Status   Config   Usage Stats
+Current session · Resets 5pm (America/New_York)██████████████████ 31%usedCurrent week (all models)· Resets 10am (America/New_York)███████████████████████████████████████████████████████▊ 96%usedCurrent week (Sonnet only)· Resets Apr 19 at 6pm (America/New_York)███████████▋ 20%used$200 in extra usage for third-party apps · /extra-usageEsc to cancel
+"""
+
+
 GEMINI_STATS_SAMPLE = """
 /stats
 ╭───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮
@@ -110,6 +116,15 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(status.weekly_percent_left, 52)
         self.assertRegex(status.primary_reset or "", r"^Resets 10 pm \((EST|EDT|ET)\)$")
         self.assertEqual(status.secondary_reset, "Resets Mar 17 at 4 pm")
+
+    def test_parse_claude_compact_single_line_panel(self) -> None:
+        status = parse_claude_status(CLAUDE_COMPACT_SINGLE_LINE_SAMPLE)
+        self.assertEqual(status.session_percent_left, 69)
+        self.assertEqual(status.weekly_percent_left, 4)
+        self.assertEqual(status.opus_percent_left, 80)
+        self.assertRegex(status.primary_reset or "", r"^Resets 5 pm \((EST|EDT|ET)\)$")
+        self.assertRegex(status.secondary_reset or "", r"^Resets 10 am \((EST|EDT|ET)\)$")
+        self.assertRegex(status.opus_reset or "", r"^Resets Apr 19 at 6 pm \((EST|EDT|ET)\)$")
 
     def test_claude_usage_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "rate limited"):

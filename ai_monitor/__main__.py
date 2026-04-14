@@ -160,19 +160,15 @@ def main() -> int:
         executor = ThreadPoolExecutor(max_workers=1)
         try:
             future = executor.submit(collect_snapshots, providers, args.debug)
-            frame = 0
             started = time.monotonic()
-            while not future.done():
-                write_screen(
-                    render_loading_screen(
-                        "Getting initial usage from Codex, Claude, Gemini, and Copilot…",
-                        datetime.now(),
-                        frame,
-                        time.monotonic() - started,
-                    ),
-                )
-                time.sleep(0.12)
-                frame += 1
+            write_screen(
+                render_loading_screen(
+                    "Getting initial usage from Codex, Claude, Gemini, and Copilot…",
+                    datetime.now(),
+                    0,
+                    time.monotonic() - started,
+                ),
+            )
             snapshots = future.result()
         finally:
             executor.shutdown(wait=False, cancel_futures=True)

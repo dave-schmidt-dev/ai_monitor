@@ -7,6 +7,8 @@
 - Fixed Gemini direct quota probing for bundled Gemini CLI installs (for example Homebrew v0.37.x), restoring Flash/Pro usage without relying on `/stats` PTY scraping.
 - Fixed Claude usage parsing for compressed single-line panels so 5h/1w percentages and reset fields no longer collapse into one mixed value.
 - Hardened Codex probing against transient PTY control-sequence noise and added a startup warmup/retry path so `/status` reliably captures full 5h and weekly limits.
+- Added a fourth provider card for GitHub Copilot by probing interactive status-line premium request signals.
+- Added Copilot parser coverage and UI coverage so premium request, remaining percentage, and pace rows render consistently with the existing dashboard style.
 
 ## 2026-03-14
 

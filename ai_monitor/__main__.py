@@ -10,12 +10,12 @@ import os
 import sys
 import time
 
-from .providers import ClaudeProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
+from .providers import ClaudeProvider, CopilotProvider, CodexProvider, GeminiProvider, ProviderSnapshot, fetch_provider_snapshot
 from .ui import countdown_sleep, render_json, render_loading_screen, render_screen, write_screen
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Monitor Codex and Claude usage in real time.")
+    parser = argparse.ArgumentParser(description="Monitor Codex, Claude, Gemini, and Copilot usage in real time.")
     parser.add_argument("--interval", type=int, default=120, help="Refresh interval in seconds.")
     parser.add_argument("--once", action="store_true", help="Fetch one snapshot and exit.")
     parser.add_argument("--json", action="store_true", help="Print JSON instead of the live dashboard.")
@@ -47,6 +47,13 @@ def initialize_providers(cwd: str) -> tuple[list[tuple[str, object]], list[objec
         cleanup.append(gemini)
     except Exception as exc:  # noqa: BLE001
         providers.append(("Gemini", exc))
+
+    try:
+        copilot = CopilotProvider(cwd)
+        providers.append(("Copilot", copilot))
+        cleanup.append(copilot)
+    except Exception as exc:  # noqa: BLE001
+        providers.append(("Copilot", exc))
 
     return providers, cleanup
 
@@ -83,6 +90,7 @@ def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
         "could not load usage data",
         "empty claude output",
         "empty gemini output",
+        "empty copilot output",
         "missing current session",
         "data not available yet",
     )
@@ -157,7 +165,7 @@ def main() -> int:
             while not future.done():
                 write_screen(
                     render_loading_screen(
-                        "Getting initial usage from Codex, Claude, and Gemini…",
+                        "Getting initial usage from Codex, Claude, Gemini, and Copilot…",
                         datetime.now(),
                         frame,
                         time.monotonic() - started,

@@ -1,4 +1,4 @@
-"""Parsing helpers for Codex, Claude, and Gemini usage output."""
+"""Parsing helpers for Codex, Claude, Gemini, and Copilot usage output."""
 
 from __future__ import annotations
 
@@ -142,6 +142,18 @@ class GeminiStatus:
     pro_reset: str | None
     account_email: str | None
     account_tier: str | None
+    raw_text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class CopilotStatus:
+    premium_requests: int | None
+    sample_duration_seconds: int | None
+    premium_percent_left: int | None
+    premium_reset: str | None
     raw_text: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -528,5 +540,47 @@ def parse_gemini_status(text: str) -> GeminiStatus:
         pro_reset=pro_reset,
         account_email=account_email,
         account_tier=account_tier,
+        raw_text=clean,
+    )
+
+
+def _parse_duration_seconds(value: str | None) -> int | None:
+    if not value:
+        return None
+    match = re.fullmatch(r"\s*(\d+)\s*([smh])\s*", value, re.IGNORECASE)
+    if not match:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2).lower()
+    if unit == "s":
+        return amount
+    if unit == "m":
+        return amount * 60
+    return amount * 3600
+
+
+def parse_copilot_status(text: str) -> CopilotStatus:
+    """Parse Copilot status-line usage text from interactive PTY capture."""
+
+    clean = compact_whitespace(strip_ansi(text))
+    if not clean:
+        raise ValueError("empty Copilot output")
+
+    request_matches = re.findall(r"Requests\s+(\d+)\s+Premium(?:\s+\(([^)]+)\))?", clean, re.IGNORECASE)
+    remaining_matches = re.findall(r"Remaining\s+reqs?\.\s*:?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", clean, re.IGNORECASE)
+    if not request_matches and not remaining_matches:
+        raise ValueError("could not parse Copilot premium requests")
+
+    premium_requests = int(request_matches[-1][0]) if request_matches else None
+    duration_text = request_matches[-1][1] if request_matches else None
+    duration_seconds = _parse_duration_seconds(duration_text)
+    premium_note = f"sample {duration_text.strip()}" if duration_text else None
+    premium_percent_left = int(round(float(remaining_matches[-1]))) if remaining_matches else None
+
+    return CopilotStatus(
+        premium_requests=premium_requests,
+        sample_duration_seconds=duration_seconds,
+        premium_percent_left=premium_percent_left,
+        premium_reset=premium_note,
         raw_text=clean,
     )

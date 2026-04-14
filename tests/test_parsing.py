@@ -6,6 +6,7 @@ import unittest
 
 from ai_monitor.parsing import (
     parse_claude_status,
+    parse_copilot_status,
     parse_codex_status,
     parse_gemini_status,
 )
@@ -86,6 +87,15 @@ GEMINI_STATS_SAMPLE = """
 """
 
 
+COPILOT_STATUS_SAMPLE = """
+● Changes   +12 -3  Requests  7 Premium (2m)
+"""
+
+COPILOT_REMAINING_SAMPLE = """
+ / commands · ? help                 Remaining reqs.: 97.6%
+"""
+
+
 class ParsingTests(unittest.TestCase):
     def test_parse_codex_status(self) -> None:
         status = parse_codex_status(CODEX_SAMPLE)
@@ -142,6 +152,18 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(status.pro_reset, "resets in 22h 23m")
         self.assertEqual(status.account_email, "user@example.com")
         self.assertEqual(status.account_tier, "Gemini Code Assist in Google One AI Pro")
+
+    def test_parse_copilot_status(self) -> None:
+        status = parse_copilot_status(COPILOT_STATUS_SAMPLE)
+        self.assertEqual(status.premium_requests, 7)
+        self.assertEqual(status.sample_duration_seconds, 120)
+        self.assertIsNone(status.premium_percent_left)
+        self.assertEqual(status.premium_reset, "sample 2m")
+
+    def test_parse_copilot_remaining_percent(self) -> None:
+        status = parse_copilot_status(COPILOT_REMAINING_SAMPLE)
+        self.assertIsNone(status.premium_requests)
+        self.assertEqual(status.premium_percent_left, 98)
 
 
 if __name__ == "__main__":

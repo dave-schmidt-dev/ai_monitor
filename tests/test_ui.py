@@ -34,6 +34,12 @@ class UIRenderingTests(unittest.TestCase):
             "pro_percent_left": 83,
             "pro_reset": "resets in 22h 23m",
         }
+        self.copilot_data = {
+            "premium_requests": 7,
+            "sample_duration_seconds": 120,
+            "premium_percent_left": 98,
+            "premium_reset": "sample 2m",
+        }
 
     def test_shared_usage_row_builder_keeps_labels_aligned(self) -> None:
         expected_labels = [
@@ -112,6 +118,21 @@ class UIRenderingTests(unittest.TestCase):
         self.assertIn("Google CLI usage view", screen)
         self.assertTrue(any("Codex" in line and "Claude" in line for line in screen.splitlines()))
         self.assertIn("Gemini", screen)
+
+    def test_render_screen_includes_copilot_card(self) -> None:
+        snapshots = [
+            ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
+            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+            ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data),
+            ProviderSnapshot(name="Copilot", ok=True, source="cli", data=self.copilot_data),
+        ]
+
+        with patch("ai_monitor.ui.shutil.get_terminal_size", return_value=os.terminal_size((120, 32))):
+            screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
+
+        self.assertIn("GitHub Copilot CLI usage view", screen)
+        self.assertIn("premium req", screen)
+        self.assertIn("premium pace", screen)
 
 
 if __name__ == "__main__":

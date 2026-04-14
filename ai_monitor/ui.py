@@ -84,6 +84,14 @@ PROVIDER_RENDER_SPECS = {
             WindowRenderSpec("pro", "pro pool", "pro reset", None, "pro_percent_left", "pro_reset", None),
         ),
     ),
+    "Copilot": ProviderRenderSpec(
+        title="Copilot",
+        subtitle="GitHub Copilot CLI usage view",
+        accent=PALETTE["cyan"],
+        windows=(
+            WindowRenderSpec("premium", "premium req", "premium note", "premium pace", "premium_percent_left", "premium_reset", None),
+        ),
+    ),
 }
 
 
@@ -407,6 +415,9 @@ def _generic_snapshot_rows(data: dict[str, object], width: int, source: str) -> 
 def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -> list[str]:
     assert snapshot.data is not None
     badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
+    if snapshot.name == "Copilot":
+        rows = _copilot_rows(snapshot.data, card_width - 4)
+        return _card("Copilot", "GitHub Copilot CLI usage view", rows, card_width, PALETTE["cyan"], True, badge_text)
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
     if spec is None:
         rows = _generic_snapshot_rows(snapshot.data, card_width - 4, snapshot.source)
@@ -414,6 +425,30 @@ def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -
 
     rows = _build_usage_rows(snapshot.data, card_width - 4, now, spec.windows)
     return _card(spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text)
+
+
+def _copilot_rows(data: dict[str, object], width: int) -> list[str]:
+    requests = data.get("premium_requests")
+    duration = data.get("sample_duration_seconds")
+    remaining = data.get("premium_percent_left")
+
+    req_text = _plain(requests)
+    remaining_text = _plain(None if remaining is None else f"{remaining}%")
+    note_text = "status-line sample"
+    if isinstance(duration, int) and duration > 0:
+        note_text = f"sample {duration}s"
+
+    pace_text = "pace n/a"
+    if isinstance(requests, int) and isinstance(duration, int) and duration > 0:
+        per_hour = (requests * 3600.0) / duration
+        pace_text = f"{per_hour:.1f} req/h"
+
+    return [
+        _info_row("premium req", req_text, width),
+        _info_row("premium rem", remaining_text, width),
+        _info_row("premium note", note_text, width),
+        _info_row("premium pace", pace_text, width),
+    ]
 
 
 def _provider_display_fields(snapshot: ProviderSnapshot, now: datetime) -> dict[str, str]:
@@ -508,7 +543,7 @@ def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, el
     hero = [
         CLEAR,
         f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}  {_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {_badge(f'startup {elapsed_seconds:0.1f}s', PALETTE['cyan'])}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, and Gemini sessions{RESET}",
+        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
         "",
     ]
     rows = [
@@ -537,7 +572,7 @@ def render_screen(snapshots: list[ProviderSnapshot], updated_at: datetime, next_
     hero = [
         CLEAR,
         f"{header_title}  {header_meta}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, and Gemini sessions{RESET}",
+        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
         "",
     ]
 

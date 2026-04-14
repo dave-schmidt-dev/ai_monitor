@@ -1,4 +1,4 @@
-"""Provider probes for Codex, Claude, and Gemini usage."""
+"""Provider probes for Codex, Claude, Gemini, and Copilot usage."""
 
 from __future__ import annotations
 
@@ -14,9 +14,11 @@ from zoneinfo import ZoneInfo
 
 from .parsing import (
     ClaudeStatus,
+    CopilotStatus,
     CodexStatus,
     GeminiStatus,
     parse_claude_status,
+    parse_copilot_status,
     parse_codex_status,
     parse_gemini_status,
     strip_ansi,
@@ -513,6 +515,63 @@ console.log(JSON.stringify({
     def _is_waiting_for_authentication(raw_text: str) -> bool:
         clean = strip_ansi(raw_text).lower()
         return "waiting for authentication" in clean
+
+    def close(self) -> None:
+        self.session.close()
+
+
+class CopilotProvider:
+    """Fetch premium-request usage from the local GitHub Copilot CLI."""
+
+    def __init__(self, cwd: str) -> None:
+        binary = shutil.which("copilot")
+        if not binary:
+            raise FileNotFoundError("copilot not found on PATH")
+        self.session = PersistentPTYSession(binary=binary, args=[], cwd=cwd)
+
+    def fetch(self) -> CopilotStatus:
+        last_error: Exception | None = None
+        last_raw = ""
+        for attempt in range(2):
+            warmup_raw = self.session.capture(
+                "",
+                CaptureConfig(
+                    timeout=20.0,
+                    startup_wait=1.0 if attempt == 0 else 1.6,
+                    idle_timeout=2.5,
+                    discard_preexisting_output=False,
+                    stop_substrings=("Environment loaded:", "Type your message"),
+                    settle_after_stop=1.0,
+                ),
+            )
+            raw = self.session.capture(
+                "",
+                CaptureConfig(
+                    timeout=8.0,
+                    startup_wait=0.4,
+                    idle_timeout=1.8,
+                    discard_preexisting_output=False,
+                    stop_substrings=("Requests", "Premium"),
+                    settle_after_stop=0.8,
+                ),
+            )
+            merged = f"{warmup_raw}\n{raw}"
+            if _is_empty_or_echo(merged, ""):
+                last_error = ValueError("empty Copilot output")
+                last_raw = merged
+                self.session.close()
+                continue
+            try:
+                return parse_copilot_status(merged)
+            except Exception as exc:  # noqa: BLE001
+                last_error = exc
+                last_raw = merged
+                if "empty" in str(exc).lower() or "could not parse copilot premium requests" in str(exc).lower():
+                    self.session.close()
+                    continue
+                raise ProbeFailure(str(exc), strip_ansi(merged)) from exc
+        assert last_error is not None
+        raise ProbeFailure(str(last_error), strip_ansi(last_raw)) from last_error
 
     def close(self) -> None:
         self.session.close()

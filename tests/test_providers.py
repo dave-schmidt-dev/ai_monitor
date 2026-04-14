@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from ai_monitor.providers import GeminiProvider, _is_terminal_probe_noise
+from ai_monitor.providers import CopilotProvider, GeminiProvider, _is_terminal_probe_noise
 
 
 class ProviderHelperTests(unittest.TestCase):
@@ -29,6 +29,11 @@ class ProviderHelperTests(unittest.TestCase):
         self.assertTrue(_is_terminal_probe_noise("10;?"))
         self.assertTrue(_is_terminal_probe_noise("11;?0;"))
         self.assertFalse(_is_terminal_probe_noise("5h limit: 70% left"))
+
+    def test_copilot_monthly_reset_label_uses_utc(self) -> None:
+        label = CopilotProvider._monthly_reset_label()
+        self.assertTrue(label.startswith("Resets "))
+        self.assertTrue(label.endswith(" UTC"))
 
 
 if __name__ == "__main__":

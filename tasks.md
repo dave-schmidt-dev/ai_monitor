@@ -10,3 +10,5 @@
 - [x] Add GitHub Copilot as a fourth monitored provider with premium request parsing and dashboard rows aligned with the other cards.
 - [x] Refine Copilot card semantics to monthly remaining/reset/pace with one-decimal percentage output.
 - [x] Show an explicit updating state during timed refresh instead of a frozen countdown at 0s.
+- [x] Fix updating-state redraw spam and keep refresh in-place without flooding full frames.
+- [x] Switch Copilot month reset target to UTC and add a color progress bar for `month rem`.

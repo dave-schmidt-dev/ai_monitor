@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 import re
 import shutil
@@ -183,7 +183,7 @@ def _apply_right_gutter(lines: list[str], width: int, gutter: int = 4) -> list[s
     return [_truncate_colored(line, limit) for line in lines]
 
 
-def _progress_bar(percent: int | None, width: int, accent: str) -> str:
+def _progress_bar(percent: float | None, width: int, accent: str) -> str:
     if percent is None:
         empty = "·" * width
         return f"{PALETTE['shadow']}{empty}{RESET}"
@@ -322,7 +322,7 @@ def _format_reset_display(reset_text: str | None, now: datetime) -> str:
     return _format_clock(target.hour, target.minute)
 
 
-def _pace_label(percent_left: int | None, reset_text: str | None, now: datetime, window_hours: float | None) -> str:
+def _pace_label(percent_left: float | None, reset_text: str | None, now: datetime, window_hours: float | None) -> str:
     if percent_left is None or window_hours is None:
         return "pace n/a"
     target = _parse_reset_target(reset_text, now)
@@ -343,10 +343,19 @@ def _pace_label(percent_left: int | None, reset_text: str | None, now: datetime,
     return f"over pace -{diff_points}pt"
 
 
-def _metric_row(label: str, percent: int | None, reset_text: str | None, width: int, now: datetime) -> str:
+def _format_percent_value(percent: float | None) -> str:
+    if percent is None:
+        return "n/a"
+    rounded = round(percent, 1)
+    if rounded.is_integer():
+        return f"{int(rounded)}%"
+    return f"{rounded:.1f}%"
+
+
+def _metric_row(label: str, percent: float | None, reset_text: str | None, width: int, now: datetime) -> str:
     label_width = 9
     accent = _color_for_percent(percent)
-    value_text = _plain(None if percent is None else f"{percent}%")
+    value_text = _format_percent_value(percent)
     left = f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
     left_width = label_width + 1 + len(value_text)
     bar_width = max(8, width - left_width - 2)
@@ -354,7 +363,7 @@ def _metric_row(label: str, percent: int | None, reset_text: str | None, width: 
     return f"{left}  {bar}"
 
 
-def _pace_row(label: str, percent: int | None, reset_text: str | None, width: int, now: datetime, window_hours: float | None) -> str:
+def _pace_row(label: str, percent: float | None, reset_text: str | None, width: int, now: datetime, window_hours: float | None) -> str:
     label_width = 9
     pace = _pace_label(percent, reset_text, now, window_hours)
     if "under pace" in pace:
@@ -428,18 +437,20 @@ def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -
 
 
 def _copilot_monthly_reset_target(now: datetime) -> datetime:
-    year = now.year + (1 if now.month == 12 else 0)
-    month = 1 if now.month == 12 else now.month + 1
-    return datetime(year, month, 1, 0, 0)
+    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    year = utc_now.year + (1 if utc_now.month == 12 else 0)
+    month = 1 if utc_now.month == 12 else utc_now.month + 1
+    return datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
 
 
 def _copilot_monthly_pace_label(percent_left: float | None, now: datetime) -> str:
     if percent_left is None:
         return "pace n/a"
-    start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = _copilot_monthly_reset_target(now)
+    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = _copilot_monthly_reset_target(utc_now)
     total_seconds = max(1.0, (end - start).total_seconds())
-    remaining_seconds = max(0.0, (end - now).total_seconds())
+    remaining_seconds = max(0.0, (end - utc_now).total_seconds())
     expected_remaining = (remaining_seconds / total_seconds) * 100.0
     delta = percent_left - expected_remaining
     diff_points = round(abs(delta), 1)
@@ -467,11 +478,10 @@ def _copilot_pace_row(label: str, pace_text: str, width: int) -> str:
 def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[str]:
     remaining = data.get("premium_percent_left")
     percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
-    remaining_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
-    reset_value = data.get("premium_reset") or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p')}"
+    reset_value = data.get("premium_reset") or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
     pace_text = _copilot_monthly_pace_label(percent_left, now)
     return [
-        _info_row("month rem", remaining_text, width),
+        _metric_row("month rem", percent_left, None, width, now),
         _reset_row("month reset", reset_value, width, now),
         _copilot_pace_row("month pace", pace_text, width),
     ]

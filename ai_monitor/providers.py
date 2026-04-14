@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import re
@@ -580,10 +580,11 @@ class CopilotProvider:
 
     @staticmethod
     def _monthly_reset_label() -> str:
-        now = datetime.now()
+        now = datetime.now(timezone.utc)
         year = now.year + (1 if now.month == 12 else 0)
         month = 1 if now.month == 12 else now.month + 1
-        return f"Resets {datetime(year, month, 1, 0, 0).strftime('%b %d %I:%M %p')}"
+        reset = datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
+        return f"Resets {reset.strftime('%b %d %I:%M %p UTC')}"
 
 
 def fetch_provider_snapshot(name: str, fetcher: Any, debug: bool = False) -> ProviderSnapshot:

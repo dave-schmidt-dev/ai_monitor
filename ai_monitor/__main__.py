@@ -196,20 +196,16 @@ def main() -> int:
             try:
                 refresh_started = time.monotonic()
                 refresh_future = refresh_executor.submit(refresh, current)
-                frame = 0
-                while not refresh_future.done():
-                    write_screen(
-                        render_screen(
-                            current,
-                            datetime.now(),
-                            0,
-                            updating=True,
-                            update_elapsed=time.monotonic() - refresh_started,
-                            update_frame=frame,
-                        )
+                write_screen(
+                    render_screen(
+                        current,
+                        datetime.now(),
+                        0,
+                        updating=True,
+                        update_elapsed=time.monotonic() - refresh_started,
+                        update_frame=0,
                     )
-                    time.sleep(0.12)
-                    frame += 1
+                )
                 current = refresh_future.result()
             finally:
                 refresh_executor.shutdown(wait=False, cancel_futures=True)

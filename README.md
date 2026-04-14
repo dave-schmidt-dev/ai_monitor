@@ -19,7 +19,7 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Refreshes every 120 seconds by default
 - Shows Codex and Claude 5-hour and 1-week session usage, reset times, and pace indicators
 - Shows Gemini Flash and Pro pool remaining percentages with reset countdowns
-- Shows Copilot monthly premium remaining (`month rem`), monthly reset (`month reset`), and monthly pace (`month pace`) in the same card style
+- Shows Copilot monthly premium remaining (`month rem`) with a color progress bar, monthly reset (`month reset`), and monthly pace (`month pace`) in the same card style
 - Uses a shared provider card renderer so reset labels and pacing rows stay aligned across providers
 - Canonicalizes reset displays to one local format across provider-specific strings
 - Renders a compact grid dashboard optimized for terminal use
@@ -89,7 +89,7 @@ Gemini cards show:
 Copilot card shows:
 
 - `month rem`: remaining premium percentage, rendered with one decimal place
-- `month reset`: monthly reset target (first day of next month at 12:00 AM local time)
+- `month reset`: monthly reset target (first day of next month at 12:00 AM UTC)
 - `month pace`: pace vs expected month progress (`under pace`, `on pace`, or `over pace`)
 
 Reset displays are normalized before rendering:
@@ -136,7 +136,7 @@ Example:
 - Claude `/usage` parsing tolerates compressed single-line usage panels where session/week rows are rendered without line breaks.
 - The first refresh is slower because the local CLI sessions need to start and render their initial TUI state.
 - After startup, the monitor reuses those PTY sessions to make subsequent refreshes faster.
-- During each timed refresh, the header switches from `refresh XXs` to `updating …` until all providers complete, then resumes the countdown.
+- During each timed refresh, the header switches from `refresh XXs` to a single in-place `updating …` state until all providers complete, then resumes the countdown.
 
 ## Limitations
 

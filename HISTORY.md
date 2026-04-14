@@ -2,6 +2,9 @@
 
 ## 2026-04-14
 
+- Fixed the refresh-loop regression that repeatedly repainted the full dashboard at 10Hz during provider updates; refresh now shows a single in-place `updating` state until the probe batch finishes.
+- Switched Copilot monthly reset semantics to UTC midnight (first day of next month, `UTC`) to match GitHub premium reset behavior.
+- Added a Copilot `month rem` color progress bar so Copilot remaining usage visually matches the other provider cards.
 - Refined the Copilot card to monthly semantics (`month rem`, `month reset`, `month pace`) and switched remaining display to one decimal place.
 - Added Copilot monthly pace calculation against expected month progress, plus monthly reset normalization to first-of-month local midnight.
 - Updated the live refresh loop to show an explicit `updating …` header state while provider probes are running, then restore the countdown when refresh completes.

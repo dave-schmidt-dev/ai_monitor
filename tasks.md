@@ -14,3 +14,4 @@
 - [x] Switch Copilot month reset target to UTC and add a color progress bar for `month rem`.
 - [x] Restore live startup and countdown timers while preserving in-place terminal repaint behavior.
 - [x] Replace terminal repaint strategy with cursor-relative redraw to keep animated frames in-place across terminals with inconsistent absolute-home/alternate-screen support.
+- [x] Fix frame accumulation regression: cursor-relative repaint fails when content exceeds terminal height; replaced with full-clear (`\033[2J\033[H`) repaint strategy.

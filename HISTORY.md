@@ -1,5 +1,13 @@
 # History
 
+## 2026-04-15
+
+- Fixed dashboard frame accumulation bug: frames were printing below each other instead of repainting in-place. Root cause was cursor-relative repaint (`cursor-up N + clear-to-end`) failing when content is taller than the terminal window — lines scroll off the top and `\033[NA` cannot retrieve them. Fixed by switching `write_screen` to always emit `\033[2J\033[H` (erase all + cursor home) before each repainted frame. This also handles terminal resize automatically since `_terminal_width()` re-queries on every frame.
+- Removed `_LAST_FRAME_LINES` tracking, `_TERMINAL_RESIZED` flag, and SIGWINCH handler — none are needed with the full-clear repaint strategy.
+- Fixed missing leading `/` in `aimonitor` alias in `~/.zshrc` that prevented the alias from resolving.
+- Reorganized `~/.zshrc` into labeled sections (PATH, Completion, AI/LLM Tools, Projects, System/Infra).
+- Updated write_screen tests to document the always-full-clear invariant.
+
 ## 2026-04-14
 
 - Replaced absolute-home/alternate-screen repainting with cursor-relative redraw (`cursor-up + clear-to-end`) to keep startup/countdown/refresh animations in-place on terminals that ignore or partially implement those older control paths.

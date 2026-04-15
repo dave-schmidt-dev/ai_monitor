@@ -14,11 +14,10 @@ from .providers import ProviderSnapshot
 
 
 CLEAR = "\033[2J\033[H"
-FRAME_REPAINT = "\r"
 RESET = "\033[0m"
 BOLD = "\033[1m"
 DIM = "\033[2m"
-_LAST_FRAME_LINES = 0
+
 
 PALETTE = {
     "bg": "\033[48;5;17m",
@@ -64,8 +63,24 @@ PROVIDER_RENDER_SPECS = {
         subtitle="OpenAI CLI quota view",
         accent=PALETTE["blue"],
         windows=(
-            WindowRenderSpec("five_hour", "5h session", "5h resets", "5h pace", "five_hour_percent_left", "five_hour_reset", 5.0),
-            WindowRenderSpec("weekly", "1w session", "1w resets", "1w pace", "weekly_percent_left", "weekly_reset", 24.0 * 7.0),
+            WindowRenderSpec(
+                "five_hour",
+                "5h session",
+                "5h resets",
+                "5h pace",
+                "five_hour_percent_left",
+                "five_hour_reset",
+                5.0,
+            ),
+            WindowRenderSpec(
+                "weekly",
+                "1w session",
+                "1w resets",
+                "1w pace",
+                "weekly_percent_left",
+                "weekly_reset",
+                24.0 * 7.0,
+            ),
         ),
     ),
     "Claude": ProviderRenderSpec(
@@ -73,8 +88,24 @@ PROVIDER_RENDER_SPECS = {
         subtitle="Anthropic CLI usage view",
         accent=PALETTE["pink"],
         windows=(
-            WindowRenderSpec("five_hour", "5h session", "5h resets", "5h pace", "session_percent_left", "primary_reset", 5.0),
-            WindowRenderSpec("weekly", "1w session", "1w resets", "1w pace", "weekly_percent_left", "secondary_reset", 24.0 * 7.0),
+            WindowRenderSpec(
+                "five_hour",
+                "5h session",
+                "5h resets",
+                "5h pace",
+                "session_percent_left",
+                "primary_reset",
+                5.0,
+            ),
+            WindowRenderSpec(
+                "weekly",
+                "1w session",
+                "1w resets",
+                "1w pace",
+                "weekly_percent_left",
+                "secondary_reset",
+                24.0 * 7.0,
+            ),
         ),
     ),
     "Gemini": ProviderRenderSpec(
@@ -82,8 +113,24 @@ PROVIDER_RENDER_SPECS = {
         subtitle="Google CLI usage view",
         accent=PALETTE["teal"],
         windows=(
-            WindowRenderSpec("flash", "flash pool", "flash reset", None, "flash_percent_left", "flash_reset", None),
-            WindowRenderSpec("pro", "pro pool", "pro reset", None, "pro_percent_left", "pro_reset", None),
+            WindowRenderSpec(
+                "flash",
+                "flash pool",
+                "flash reset",
+                None,
+                "flash_percent_left",
+                "flash_reset",
+                None,
+            ),
+            WindowRenderSpec(
+                "pro",
+                "pro pool",
+                "pro reset",
+                None,
+                "pro_percent_left",
+                "pro_reset",
+                None,
+            ),
         ),
     ),
     "Copilot": ProviderRenderSpec(
@@ -91,7 +138,15 @@ PROVIDER_RENDER_SPECS = {
         subtitle="GitHub Copilot CLI usage view",
         accent=PALETTE["cyan"],
         windows=(
-            WindowRenderSpec("premium", "month rem", "month reset", "month pace", "premium_percent_left", "premium_reset", None),
+            WindowRenderSpec(
+                "premium",
+                "month rem",
+                "month reset",
+                "month pace",
+                "premium_percent_left",
+                "premium_reset",
+                None,
+            ),
         ),
     ),
 }
@@ -206,12 +261,17 @@ def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | Non
     lower = normalized.lower()
     target: datetime | None = None
     target_year = now.year
-    fragments = normalized.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
+    fragments = (
+        normalized.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
+    )
     fragments = fragments.replace(",", "")
     fragments = re.sub(r"(?i)(\d)(am|pm)\b", r"\1 \2", fragments)
     fragments = re.sub(r"\s+", " ", fragments).strip()
 
-    relative = re.search(r"(?i)\bin\s+(?:(?P<days>\d+)d\s*)?(?:(?P<hours>\d+)h\s*)?(?:(?P<minutes>\d+)m)?", fragments)
+    relative = re.search(
+        r"(?i)\bin\s+(?:(?P<days>\d+)d\s*)?(?:(?P<hours>\d+)h\s*)?(?:(?P<minutes>\d+)m)?",
+        fragments,
+    )
     if relative and any(relative.group(name) for name in ("days", "hours", "minutes")):
         return now + timedelta(
             days=int(relative.group("days") or 0),
@@ -267,7 +327,9 @@ def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | Non
                 parsed = datetime.strptime(fragments, fmt)
             except ValueError:
                 continue
-            target = now.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
+            target = now.replace(
+                hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0
+            )
             if target < now:
                 target = target + timedelta(days=1)
             break
@@ -324,7 +386,12 @@ def _format_reset_display(reset_text: str | None, now: datetime) -> str:
     return _format_clock(target.hour, target.minute)
 
 
-def _pace_label(percent_left: float | None, reset_text: str | None, now: datetime, window_hours: float | None) -> str:
+def _pace_label(
+    percent_left: float | None,
+    reset_text: str | None,
+    now: datetime,
+    window_hours: float | None,
+) -> str:
     if percent_left is None or window_hours is None:
         return "pace n/a"
     target = _parse_reset_target(reset_text, now)
@@ -354,11 +421,15 @@ def _format_percent_value(percent: float | None) -> str:
     return f"{rounded:.1f}%"
 
 
-def _metric_row(label: str, percent: float | None, reset_text: str | None, width: int, now: datetime) -> str:
+def _metric_row(
+    label: str, percent: float | None, reset_text: str | None, width: int, now: datetime
+) -> str:
     label_width = 9
     accent = _color_for_percent(percent)
     value_text = _format_percent_value(percent)
-    left = f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    left = (
+        f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    )
     left_width = label_width + 1 + len(value_text)
     bar_width = max(8, width - left_width - 2)
     bar = _progress_bar(percent, bar_width, accent)
@@ -369,14 +440,23 @@ def _copilot_metric_row(label: str, percent: float | None, width: int) -> str:
     label_width = 9
     accent = _color_for_percent(percent)
     value_text = _plain(None if percent is None else f"{percent:.1f}%")
-    left = f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    left = (
+        f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
+    )
     left_width = label_width + 1 + len(value_text)
     bar_width = max(8, width - left_width - 2)
     bar = _progress_bar(percent, bar_width, accent)
     return f"{left}  {bar}"
 
 
-def _pace_row(label: str, percent: float | None, reset_text: str | None, width: int, now: datetime, window_hours: float | None) -> str:
+def _pace_row(
+    label: str,
+    percent: float | None,
+    reset_text: str | None,
+    width: int,
+    now: datetime,
+    window_hours: float | None,
+) -> str:
     label_width = 9
     pace = _pace_label(percent, reset_text, now, window_hours)
     if "under pace" in pace:
@@ -399,7 +479,10 @@ def _info_row(label: str, value: object | None, width: int) -> str:
 
 def _reset_row(label: str, value: object | None, width: int, now: datetime) -> str:
     label_width = 9
-    plain = _truncate(_format_reset_display(None if value is None else str(value), now), max(8, width - (label_width + 3)))
+    plain = _truncate(
+        _format_reset_display(None if value is None else str(value), now),
+        max(8, width - (label_width + 3)),
+    )
     return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {PALETTE['cyan']}{plain}{RESET}"
 
 
@@ -415,16 +498,33 @@ def _build_usage_rows(
         reset = data.get(window.reset_key)
         rows.extend(
             (
-                _metric_row(window.session_label, percent, None if reset is None else str(reset), width, now),
+                _metric_row(
+                    window.session_label,
+                    percent,
+                    None if reset is None else str(reset),
+                    width,
+                    now,
+                ),
                 _reset_row(window.reset_label, reset, width, now),
             )
         )
         if window.pace_label:
-            rows.append(_pace_row(window.pace_label, percent, None if reset is None else str(reset), width, now, window.window_hours))
+            rows.append(
+                _pace_row(
+                    window.pace_label,
+                    percent,
+                    None if reset is None else str(reset),
+                    width,
+                    now,
+                    window.window_hours,
+                )
+            )
     return rows
 
 
-def _generic_snapshot_rows(data: dict[str, object], width: int, source: str) -> list[str]:
+def _generic_snapshot_rows(
+    data: dict[str, object], width: int, source: str
+) -> list[str]:
     rows = [_info_row("status", "ok", width), _info_row("source", source, width)]
     for key, value in sorted(data.items()):
         if key == "raw_text":
@@ -434,23 +534,49 @@ def _generic_snapshot_rows(data: dict[str, object], width: int, source: str) -> 
     return rows[:6]
 
 
-def _provider_card(snapshot: ProviderSnapshot, card_width: int, now: datetime) -> list[str]:
+def _provider_card(
+    snapshot: ProviderSnapshot, card_width: int, now: datetime
+) -> list[str]:
     assert snapshot.data is not None
-    badge_text = _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else "live"
+    badge_text = (
+        _cached_badge_text(snapshot, now)
+        if "cached" in snapshot.source.lower()
+        else "live"
+    )
     if snapshot.name == "Copilot":
         rows = _copilot_rows(snapshot.data, card_width - 4, now)
-        return _card("Copilot", "GitHub Copilot CLI usage view", rows, card_width, PALETTE["cyan"], True, badge_text)
+        return _card(
+            "Copilot",
+            "GitHub Copilot CLI usage view",
+            rows,
+            card_width,
+            PALETTE["cyan"],
+            True,
+            badge_text,
+        )
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
     if spec is None:
         rows = _generic_snapshot_rows(snapshot.data, card_width - 4, snapshot.source)
-        return _card(snapshot.name, "provider usage view", rows, card_width, PALETTE["cyan"], True, badge_text)
+        return _card(
+            snapshot.name,
+            "provider usage view",
+            rows,
+            card_width,
+            PALETTE["cyan"],
+            True,
+            badge_text,
+        )
 
     rows = _build_usage_rows(snapshot.data, card_width - 4, now, spec.windows)
-    return _card(spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text)
+    return _card(
+        spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text
+    )
 
 
 def _copilot_monthly_reset_target(now: datetime) -> datetime:
-    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    utc_now = (
+        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    )
     year = utc_now.year + (1 if utc_now.month == 12 else 0)
     month = 1 if utc_now.month == 12 else utc_now.month + 1
     return datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
@@ -459,7 +585,9 @@ def _copilot_monthly_reset_target(now: datetime) -> datetime:
 def _copilot_monthly_pace_label(percent_left: float | None, now: datetime) -> str:
     if percent_left is None:
         return "pace n/a"
-    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    utc_now = (
+        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    )
     start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = _copilot_monthly_reset_target(utc_now)
     total_seconds = max(1.0, (end - start).total_seconds())
@@ -491,7 +619,10 @@ def _copilot_pace_row(label: str, pace_text: str, width: int) -> str:
 def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[str]:
     remaining = data.get("premium_percent_left")
     percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
-    reset_value = data.get("premium_reset") or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
+    reset_value = (
+        data.get("premium_reset")
+        or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
+    )
     pace_text = _copilot_monthly_pace_label(percent_left, now)
     return [
         _copilot_metric_row("month rem", percent_left, width),
@@ -500,7 +631,9 @@ def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[st
     ]
 
 
-def _provider_display_fields(snapshot: ProviderSnapshot, now: datetime) -> dict[str, str]:
+def _provider_display_fields(
+    snapshot: ProviderSnapshot, now: datetime
+) -> dict[str, str]:
     if not snapshot.data:
         return {}
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
@@ -532,7 +665,9 @@ def _card(
     safe_subtitle = _truncate(subtitle, inner)
     colored_title = f"{BOLD}{accent}{safe_title}{RESET}"
     title_line = f"{PALETTE['border']}|{RESET} {_pad_colored(colored_title, inner)} {PALETTE['border']}|{RESET}"
-    subtitle_badge = _badge(badge_text or ("live" if ok else "issue"), PALETTE["ink"], PALETTE["panel"])
+    subtitle_badge = _badge(
+        badge_text or ("live" if ok else "issue"), PALETTE["ink"], PALETTE["panel"]
+    )
     badge_line = f"{PALETTE['border']}|{RESET} {_pad_colored(subtitle_badge, inner)} {PALETTE['border']}|{RESET}"
     subtitle_line = f"{PALETTE['border']}|{RESET} {_pad_colored(safe_subtitle, inner)} {PALETTE['border']}|{RESET}"
     body = [
@@ -554,7 +689,9 @@ def _merge_columns(left: list[str], right: list[str], gap: int = 2) -> list[str]
     return rows
 
 
-def _merge_card_grid(cards: list[list[str]], gap: int = 2, columns: int = 2) -> list[str]:
+def _merge_card_grid(
+    cards: list[list[str]], gap: int = 2, columns: int = 2
+) -> list[str]:
     rows: list[str] = []
     for start in range(0, len(cards), columns):
         row_cards = cards[start : start + columns]
@@ -585,7 +722,9 @@ def render_json(snapshots: list[ProviderSnapshot], updated_at: datetime) -> str:
     return json.dumps(payload, indent=2, sort_keys=True)
 
 
-def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, elapsed_seconds: float = 0.0) -> str:
+def render_loading_screen(
+    message: str, updated_at: datetime, frame: int = 0, elapsed_seconds: float = 0.0
+) -> str:
     spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[frame % 10]
     width = _terminal_width()
     card_width = min(68, max(60, width - 8))
@@ -599,7 +738,9 @@ def render_loading_screen(message: str, updated_at: datetime, frame: int = 0, el
         f"{PALETTE['muted']}First refresh can take a few seconds.{RESET}",
         f"{PALETTE['muted']}PTY sessions are reused after startup.{RESET}",
     ]
-    card = _card("Warming Up", "getting initial usage", rows, card_width, PALETTE["cyan"], True)
+    card = _card(
+        "Warming Up", "getting initial usage", rows, card_width, PALETTE["cyan"], True
+    )
     footer = [
         "",
         f"{DIM}{PALETTE['muted']}Ctrl-C to exit.{RESET}",
@@ -623,7 +764,9 @@ def render_screen(
     header_title = f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}"
     if updating:
         spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[update_frame % 10]
-        refresh_badge = _badge(f"updating {spinner} {update_elapsed:0.1f}s", PALETTE["cyan"])
+        refresh_badge = _badge(
+            f"updating {spinner} {update_elapsed:0.1f}s", PALETTE["cyan"]
+        )
     else:
         refresh_badge = _badge(f"refresh {next_refresh_seconds:02d}s", PALETTE["cyan"])
     header_meta = f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {refresh_badge}"
@@ -653,7 +796,16 @@ def render_screen(
                 _info_row("source", snapshot.source, card_width - 4),
                 f"{PALETTE['red']}{_truncate(snapshot.error or 'unknown error', card_width - 16)}{RESET}",
             ]
-            cards.append(_card(snapshot.name, "probe needs attention", error_rows, card_width, PALETTE["red"], False))
+            cards.append(
+                _card(
+                    snapshot.name,
+                    "probe needs attention",
+                    error_rows,
+                    card_width,
+                    PALETTE["red"],
+                    False,
+                )
+            )
             continue
 
         cards.append(_provider_card(snapshot, card_width, now))
@@ -676,18 +828,9 @@ def render_screen(
 
 
 def write_screen(text: str, *, repaint: bool = False) -> None:
-    global _LAST_FRAME_LINES  # noqa: PLW0603
     if repaint:
-        if _LAST_FRAME_LINES > 1:
-            sys.stdout.write(FRAME_REPAINT)
-            sys.stdout.write(f"\033[{_LAST_FRAME_LINES - 1}A")
-            sys.stdout.write("\r")
-        else:
-            sys.stdout.write(FRAME_REPAINT)
-        sys.stdout.write("\033[J")
+        sys.stdout.write(CLEAR)
     sys.stdout.write(text)
-    if repaint:
-        _LAST_FRAME_LINES = max(1, text.count("\n") + 1)
     sys.stdout.flush()
 
 

@@ -12,7 +12,7 @@ import unittest
 from ai_monitor.parsing import strip_ansi
 from ai_monitor.providers import ProviderSnapshot
 from ai_monitor.ui import (
-    FRAME_REPAINT,
+    CLEAR,
     PROVIDER_RENDER_SPECS,
     _build_usage_rows,
     _format_reset_display,
@@ -25,8 +25,6 @@ from ai_monitor.ui import (
 
 class UIRenderingTests(unittest.TestCase):
     def setUp(self) -> None:
-        import ai_monitor.ui as ui
-        ui._LAST_FRAME_LINES = 0
         self.updated_at = datetime(2026, 3, 14, 8, 22, 30)
         self.codex_data = {
             "five_hour_percent_left": 68,
@@ -60,8 +58,13 @@ class UIRenderingTests(unittest.TestCase):
             "1w resets",
             "1w pace",
         ]
-        for provider_name, data in (("Codex", self.codex_data), ("Claude", self.claude_data)):
-            rows = _build_usage_rows(data, 44, self.updated_at, PROVIDER_RENDER_SPECS[provider_name].windows)
+        for provider_name, data in (
+            ("Codex", self.codex_data),
+            ("Claude", self.claude_data),
+        ):
+            rows = _build_usage_rows(
+                data, 44, self.updated_at, PROVIDER_RENDER_SPECS[provider_name].windows
+            )
             plain_rows = [strip_ansi(row) for row in rows]
             self.assertEqual(len(plain_rows), len(expected_labels))
             for row, label in zip(plain_rows, expected_labels, strict=True):
@@ -70,14 +73,23 @@ class UIRenderingTests(unittest.TestCase):
     def test_render_screen_reuses_shared_labels_for_both_provider_cards(self) -> None:
         snapshots = [
             ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
-            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+            ProviderSnapshot(
+                name="Claude", ok=True, source="cli", data=self.claude_data
+            ),
         ]
 
         screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
 
         self.assertIn("OpenAI CLI quota view", screen)
         self.assertIn("Anthropic CLI usage view", screen)
-        for label in ("5h session", "5h resets", "5h pace", "1w session", "1w resets", "1w pace"):
+        for label in (
+            "5h session",
+            "5h resets",
+            "5h pace",
+            "1w session",
+            "1w resets",
+            "1w pace",
+        ):
             self.assertEqual(screen.count(label), 2)
 
     def test_format_reset_display_normalizes_24_hour_same_day_times(self) -> None:
@@ -88,7 +100,9 @@ class UIRenderingTests(unittest.TestCase):
         value = _format_reset_display("Resets in 2h 14m", self.updated_at)
         self.assertEqual(value, "10:36 AM")
 
-    def test_format_reset_display_normalizes_date_stamped_provider_formats(self) -> None:
+    def test_format_reset_display_normalizes_date_stamped_provider_formats(
+        self,
+    ) -> None:
         cases = {
             "Resets on Mar 18, 9:00AM": "Mar 18 9:00 AM",
             "resets 03:09 on 17 Mar": "Mar 17 3:09 AM",
@@ -102,13 +116,21 @@ class UIRenderingTests(unittest.TestCase):
     def test_render_json_includes_canonical_reset_display_fields(self) -> None:
         snapshots = [
             ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
-            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+            ProviderSnapshot(
+                name="Claude", ok=True, source="cli", data=self.claude_data
+            ),
         ]
 
         payload = json.loads(render_json(snapshots, self.updated_at))
 
-        codex = next(provider for provider in payload["providers"] if provider["name"] == "Codex")
-        claude = next(provider for provider in payload["providers"] if provider["name"] == "Claude")
+        codex = next(
+            provider for provider in payload["providers"] if provider["name"] == "Codex"
+        )
+        claude = next(
+            provider
+            for provider in payload["providers"]
+            if provider["name"] == "Claude"
+        )
 
         self.assertEqual(codex["display"]["five_hour_reset_display"], "1:16 PM")
         self.assertEqual(codex["display"]["weekly_reset_display"], "Mar 17 9:00 PM")
@@ -118,26 +140,44 @@ class UIRenderingTests(unittest.TestCase):
     def test_render_screen_uses_two_column_grid_for_three_cards(self) -> None:
         snapshots = [
             ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
-            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
-            ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data),
+            ProviderSnapshot(
+                name="Claude", ok=True, source="cli", data=self.claude_data
+            ),
+            ProviderSnapshot(
+                name="Gemini", ok=True, source="cli", data=self.gemini_data
+            ),
         ]
 
-        with patch("ai_monitor.ui.shutil.get_terminal_size", return_value=os.terminal_size((92, 30))):
+        with patch(
+            "ai_monitor.ui.shutil.get_terminal_size",
+            return_value=os.terminal_size((92, 30)),
+        ):
             screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
 
         self.assertIn("Google CLI usage view", screen)
-        self.assertTrue(any("Codex" in line and "Claude" in line for line in screen.splitlines()))
+        self.assertTrue(
+            any("Codex" in line and "Claude" in line for line in screen.splitlines())
+        )
         self.assertIn("Gemini", screen)
 
     def test_render_screen_includes_copilot_card(self) -> None:
         snapshots = [
             ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
-            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
-            ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data),
-            ProviderSnapshot(name="Copilot", ok=True, source="cli", data=self.copilot_data),
+            ProviderSnapshot(
+                name="Claude", ok=True, source="cli", data=self.claude_data
+            ),
+            ProviderSnapshot(
+                name="Gemini", ok=True, source="cli", data=self.gemini_data
+            ),
+            ProviderSnapshot(
+                name="Copilot", ok=True, source="cli", data=self.copilot_data
+            ),
         ]
 
-        with patch("ai_monitor.ui.shutil.get_terminal_size", return_value=os.terminal_size((120, 32))):
+        with patch(
+            "ai_monitor.ui.shutil.get_terminal_size",
+            return_value=os.terminal_size((120, 32)),
+        ):
             screen = strip_ansi(render_screen(snapshots, self.updated_at, 30))
 
         self.assertIn("GitHub Copilot CLI usage view", screen)
@@ -148,9 +188,20 @@ class UIRenderingTests(unittest.TestCase):
     def test_render_screen_shows_updating_badge(self) -> None:
         snapshots = [
             ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data),
-            ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data),
+            ProviderSnapshot(
+                name="Claude", ok=True, source="cli", data=self.claude_data
+            ),
         ]
-        screen = strip_ansi(render_screen(snapshots, self.updated_at, 0, updating=True, update_elapsed=1.4, update_frame=2))
+        screen = strip_ansi(
+            render_screen(
+                snapshots,
+                self.updated_at,
+                0,
+                updating=True,
+                update_elapsed=1.4,
+                update_frame=2,
+            )
+        )
         self.assertIn("updating", screen)
 
     def test_countdown_sleep_emits_each_second(self) -> None:
@@ -166,34 +217,20 @@ class UIRenderingTests(unittest.TestCase):
         self.assertEqual(sleep_mock.call_count, 5)
         sleep_mock.assert_called_with(1)
 
-    def test_write_screen_repaint_prepends_clear_for_tty(self) -> None:
-        class _TTYBuffer(io.StringIO):
-            def isatty(self) -> bool:  # noqa: D401
-                return True
-
-        buffer = _TTYBuffer()
+    def test_write_screen_repaint_uses_full_clear(self) -> None:
+        buffer = io.StringIO()
         with patch("ai_monitor.ui.sys.stdout", buffer):
             write_screen("FRAME", repaint=True)
+        self.assertEqual(buffer.getvalue(), f"{CLEAR}FRAME")
 
-        self.assertEqual(buffer.getvalue(), f"{FRAME_REPAINT}\033[JFRAME")
-
-    def test_write_screen_repaint_prepends_clear_for_non_tty(self) -> None:
-        class _NonTTYBuffer(io.StringIO):
-            def isatty(self) -> bool:  # noqa: D401
-                return False
-
-        buffer = _NonTTYBuffer()
-        with patch("ai_monitor.ui.sys.stdout", buffer):
-            write_screen("FRAME", repaint=True)
-
-        self.assertEqual(buffer.getvalue(), f"{FRAME_REPAINT}\033[JFRAME")
-
-    def test_write_screen_repaint_moves_up_prior_frame_lines(self) -> None:
+    def test_write_screen_repaint_always_clears_regardless_of_prior_frames(
+        self,
+    ) -> None:
         buffer = io.StringIO()
         with patch("ai_monitor.ui.sys.stdout", buffer):
             write_screen("line1\nline2", repaint=True)
             write_screen("next", repaint=True)
-        self.assertEqual(buffer.getvalue(), "\r\033[Jline1\nline2\r\033[1A\r\033[Jnext")
+        self.assertEqual(buffer.getvalue(), f"{CLEAR}line1\nline2{CLEAR}next")
 
 
 if __name__ == "__main__":

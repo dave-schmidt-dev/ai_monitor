@@ -1,5 +1,36 @@
 # History
 
+## 2026-04-16 (session 6)
+
+- **Auth fix actions**: When a provider reports an auth error, the dashboard card now shows `auth error — press [N] to fix` instead of the raw error text, and the footer gains `[N] fix <Name>` entries. Pressing the number key opens a new Terminal.app window (CLI auth: `claude login`, `codex login`, `gemini`, `gh auth login`) or the default browser (web auth: Cursor, Vibe). Non-auth errors are unchanged.
+- Added `AUTH_ACTIONS` table, `_is_auth_error()`, `_build_fix_actions()`, `_launch_fix()` to `__main__.py`.
+- Added `auth_fix_key` parameter to `build_provider_panel()` and `fix_actions` parameter to `build_dashboard()` in `ui.py`.
+- 25 new tests covering auth detection, fix action mapping, launch behavior, panel CTA rendering, and footer hints. 95 tests pass.
+
+## 2026-04-16 (session 5)
+
+- **PTY removal**: deleted all PTY-based provider classes (`CodexProvider`, `ClaudeProvider`, `GeminiProvider`, `CopilotProvider`), `pty_session.py`, and the 3 PTY helpers (`TRUST_PROMPTS`, `_is_empty_or_echo`, `_is_terminal_probe_noise`). HTTP providers are now the only probes.
+- **`parsing.py` gutted**: removed all parse functions (`parse_codex_status`, `parse_claude_status`, `parse_gemini_status`, `parse_copilot_status`) and their supporting helpers. File is now ~92 lines of dataclasses only.
+- **`GeminiHttpProvider` static methods**: migrated `_find_bucket`, `_percent_from_fraction`, `_read_gemini_account_email` directly onto `GeminiHttpProvider`; replaced `_reset_from_iso` (relative countdown) with `_format_reset_time` (absolute local timestamp) to match all other providers.
+- **`CopilotHttpProvider._monthly_reset_label`**: added to `CopilotHttpProvider` and removed the cross-class `CopilotProvider._monthly_reset_label()` call.
+- **`__main__.py` simplified**: removed `--compare` flag, `_build_compare_table()`, and all `if compare:` branches; `initialize_providers()` no longer has a `compare` param; provider names drop `[HTTP]` suffix.
+- **`source` tag**: changed default in `fetch_provider_snapshot` from `"cli"` to `"api"`; static init errors also tag `source="api"`.
+- **Tests**: deleted `test_parsing.py` (tested deleted parse functions); removed 5 PTY-specific test methods from `test_providers.py`; rewrote `test_copilot_monthly_reset_label_uses_local_time` to use `CopilotHttpProvider`.
+- Net reduction: ~1,500 lines removed. 70 tests pass.
+
+## 2026-04-16 (session 4)
+
+- **HTTP API probes**: Added direct HTTP provider classes for all 4 PTY-based providers (`CopilotHttpProvider`, `CodexHttpProvider`, `ClaudeHttpProvider`, `GeminiHttpProvider`). Each calls the provider's own REST API using locally cached auth tokens/cookies, returning the same status dataclass as the PTY provider.
+  - Copilot: `gh auth token` → GitHub internal API (`/copilot_internal/user`)
+  - Codex: `~/.codex/auth.json` → OpenAI wham usage API
+  - Claude: Safari cookies (`sessionKey`, `cf_clearance`, `lastActiveOrg`) → `claude.ai/api/organizations/{org_id}/usage`
+  - Gemini: `~/.gemini/oauth_creds.json` (with auto-refresh) → `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota`
+- **Shared helpers**: `_http_json()` (stdlib urllib wrapper, maps HTTP errors to `ProbeFailure`) and `_format_reset_time()` (unifies ISO/epoch-sec/epoch-ms → `"Resets Mon DD at HH:MM AM/PM"` across providers).
+- **`--compare` flag**: runs PTY and HTTP probes side-by-side, prints a delta table after `--once` output.
+- **Transient error patterns**: `_is_transient_probe_error()` now recognizes `"http 429"`, `"http 502"`, `"http 503"`, `"token expired"` so cached snapshots survive HTTP rate-limit storms the same way PTY errors do.
+- **`fetch_provider_snapshot()` source param**: accepts `source="api"` so HTTP snapshots are tagged differently from PTY ones.
+- Added 20 unit tests for the new helpers and all 4 HTTP providers.
+
 ## 2026-04-16 (session 3)
 
 - **Dashboard label consistency**: all provider window labels shortened to 2 chars (`5h`, `1w`, `mo`, `fl`, `pr`). Gemini `flash`/`pro` → `fl`/`pr`; Copilot/Cursor/Vibe `1mo` → `mo`; Cursor `plan` → `pl`. Column 1 pinned to `max_width=2` in the table layout.

@@ -22,5 +22,10 @@
 - [x] Add keyboard shortcuts in live mode (e.g., `r` to force refresh, `q` to quit).
 - [x] Add config file for enabling/disabling providers.
 - [x] Add notification hooks when usage crosses thresholds (e.g., under 20%).
+- [x] Add direct HTTP API probes for all 4 PTY providers (Copilot, Codex, Claude, Gemini). Use `--compare` to validate parity before switching defaults.
+- [x] Make HTTP providers the default; removed all PTY infrastructure (`pty_session.py`, 4 PTY provider classes, `parsing.py` parse functions, `--compare` flag). Net ~1,500 lines removed.
+- [x] Auth fix actions: numbered key hints for auth-errored providers, launching Terminal or browser to fix.
+- [ ] Add `--web` mode to serve the dashboard as a local HTML page.
+- [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.

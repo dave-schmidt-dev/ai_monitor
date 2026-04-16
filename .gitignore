@@ -11,3 +11,6 @@ env/
 .env.*
 dist/
 build/
+/plans
+.mistral_cookies.json
+.ai_monitor.json

@@ -6,36 +6,46 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import json
 import re
-import shutil
-import sys
-import time
+
+from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
+from rich.panel import Panel
+from rich.spinner import Spinner
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
 
 from .providers import ProviderSnapshot
 
 
-CLEAR = "\033[2J\033[H"
-RESET = "\033[0m"
-BOLD = "\033[1m"
-DIM = "\033[2m"
-
-
-PALETTE = {
-    "bg": "\033[48;5;17m",
-    "panel": "\033[48;5;236m",
-    "panel_alt": "\033[48;5;234m",
-    "ink": "\033[38;5;254m",
-    "muted": "\033[38;5;250m",
-    "blue": "\033[38;5;111m",
-    "cyan": "\033[38;5;117m",
-    "teal": "\033[38;5;80m",
-    "green": "\033[38;5;114m",
-    "yellow": "\033[38;5;221m",
-    "orange": "\033[38;5;215m",
-    "red": "\033[38;5;203m",
-    "pink": "\033[38;5;219m",
-    "border": "\033[38;5;67m",
-    "shadow": "\033[38;5;239m",
-}
+THEME = Theme(
+    {
+        "bg": "on color(17)",
+        "panel": "on color(236)",
+        "panel_alt": "on color(234)",
+        "text.ink": "color(254)",
+        "text.muted": "color(250)",
+        "text.blue": "color(111)",
+        "text.cyan": "color(117)",
+        "text.teal": "color(80)",
+        "text.green": "color(114)",
+        "text.yellow": "color(221)",
+        "text.orange": "color(215)",
+        "text.red": "color(203)",
+        "text.pink": "color(219)",
+        "border": "color(67)",
+        "shadow": "color(239)",
+        "bar.green": "color(114)",
+        "bar.yellow": "color(221)",
+        "bar.orange": "color(215)",
+        "bar.red": "color(203)",
+        "accent.codex": "color(111)",
+        "accent.claude": "color(219)",
+        "accent.gemini": "color(80)",
+        "accent.copilot": "color(117)",
+        "accent.cursor": "color(214)",
+        "accent.vibe": "color(208)",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,15 +63,13 @@ class WindowRenderSpec:
 class ProviderRenderSpec:
     title: str
     subtitle: str
-    accent: str
     windows: tuple[WindowRenderSpec, ...]
 
 
 PROVIDER_RENDER_SPECS = {
     "Codex": ProviderRenderSpec(
         title="Codex",
-        subtitle="OpenAI CLI quota view",
-        accent=PALETTE["blue"],
+        subtitle="Codex usage",
         windows=(
             WindowRenderSpec(
                 "five_hour",
@@ -85,8 +93,7 @@ PROVIDER_RENDER_SPECS = {
     ),
     "Claude": ProviderRenderSpec(
         title="Claude",
-        subtitle="Anthropic CLI usage view",
-        accent=PALETTE["pink"],
+        subtitle="Claude usage",
         windows=(
             WindowRenderSpec(
                 "five_hour",
@@ -110,8 +117,7 @@ PROVIDER_RENDER_SPECS = {
     ),
     "Gemini": ProviderRenderSpec(
         title="Gemini",
-        subtitle="Google CLI usage view",
-        accent=PALETTE["teal"],
+        subtitle="Gemini usage",
         windows=(
             WindowRenderSpec(
                 "flash",
@@ -135,8 +141,7 @@ PROVIDER_RENDER_SPECS = {
     ),
     "Copilot": ProviderRenderSpec(
         title="Copilot",
-        subtitle="GitHub Copilot CLI usage view",
-        accent=PALETTE["cyan"],
+        subtitle="Copilot usage",
         windows=(
             WindowRenderSpec(
                 "premium",
@@ -152,10 +157,9 @@ PROVIDER_RENDER_SPECS = {
 }
 
 
-def _terminal_width() -> int:
-    cols = shutil.get_terminal_size(fallback=(96, 30)).columns
-    safe_cols = max(56, cols - 4)
-    return min(safe_cols, 152)
+# ---------------------------------------------------------------------------
+# Shared helpers (business logic, kept from original)
+# ---------------------------------------------------------------------------
 
 
 def _plain(value: object | None) -> str:
@@ -164,94 +168,12 @@ def _plain(value: object | None) -> str:
     return str(value)
 
 
-def _color_for_percent(percent: float | None) -> str:
-    if percent is None:
-        return PALETTE["muted"]
-    if percent >= 70:
-        return PALETTE["green"]
-    if percent >= 40:
-        return PALETTE["yellow"]
-    if percent >= 20:
-        return PALETTE["orange"]
-    return PALETTE["red"]
-
-
-def _badge(text: str, fg: str, bg: str = PALETTE["panel_alt"]) -> str:
-    return f"{bg}{fg} {text} {RESET}"
-
-
 def _truncate(text: str, width: int) -> str:
     if len(text) <= width:
         return text
     if width <= 1:
         return text[:width]
     return text[: width - 1] + "…"
-
-
-def _visible_length(text: str) -> int:
-    length = 0
-    in_escape = False
-    for char in text:
-        if char == "\033":
-            in_escape = True
-        elif in_escape and char == "m":
-            in_escape = False
-        elif not in_escape:
-            length += 1
-    return length
-
-
-def _pad_colored(text: str, width: int) -> str:
-    padding = max(0, width - _visible_length(text))
-    return f"{text}{' ' * padding}"
-
-
-def _truncate_colored(text: str, width: int) -> str:
-    if _visible_length(text) <= width:
-        return text
-    if width <= 1:
-        return "…"
-
-    result: list[str] = []
-    visible = 0
-    idx = 0
-    while idx < len(text):
-        char = text[idx]
-        if char == "\033":
-            end = idx + 1
-            while end < len(text) and text[end] != "m":
-                end += 1
-            end = min(end + 1, len(text))
-            result.append(text[idx:end])
-            idx = end
-            continue
-        if visible >= width - 1:
-            break
-        result.append(char)
-        visible += 1
-        idx += 1
-    result.append("…")
-    result.append(RESET)
-    return "".join(result)
-
-
-def _apply_right_gutter(lines: list[str], width: int, gutter: int = 4) -> list[str]:
-    limit = max(20, width - gutter)
-    return [_truncate_colored(line, limit) for line in lines]
-
-
-def _progress_bar(percent: float | None, width: int, accent: str) -> str:
-    if percent is None:
-        empty = "·" * width
-        return f"{PALETTE['shadow']}{empty}{RESET}"
-
-    filled = max(0, min(width, round(width * percent / 100)))
-    empty = max(0, width - filled)
-    head = "▓" * max(0, filled - 1)
-    cap = "█" if filled else ""
-    tail = "░" * empty
-    bar = f"{accent}{head}{cap}{RESET}{PALETTE['shadow']}{tail}{RESET}"
-    return bar
 
 
 def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | None:
@@ -421,158 +343,6 @@ def _format_percent_value(percent: float | None) -> str:
     return f"{rounded:.1f}%"
 
 
-def _metric_row(
-    label: str, percent: float | None, reset_text: str | None, width: int, now: datetime
-) -> str:
-    label_width = 9
-    accent = _color_for_percent(percent)
-    value_text = _format_percent_value(percent)
-    left = (
-        f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
-    )
-    left_width = label_width + 1 + len(value_text)
-    bar_width = max(8, width - left_width - 2)
-    bar = _progress_bar(percent, bar_width, accent)
-    return f"{left}  {bar}"
-
-
-def _copilot_metric_row(label: str, percent: float | None, width: int) -> str:
-    label_width = 9
-    accent = _color_for_percent(percent)
-    value_text = _plain(None if percent is None else f"{percent:.1f}%")
-    left = (
-        f"{PALETTE['muted']}{label:<{label_width}}{RESET} {accent}{value_text}{RESET}"
-    )
-    left_width = label_width + 1 + len(value_text)
-    bar_width = max(8, width - left_width - 2)
-    bar = _progress_bar(percent, bar_width, accent)
-    return f"{left}  {bar}"
-
-
-def _pace_row(
-    label: str,
-    percent: float | None,
-    reset_text: str | None,
-    width: int,
-    now: datetime,
-    window_hours: float | None,
-) -> str:
-    label_width = 9
-    pace = _pace_label(percent, reset_text, now, window_hours)
-    if "under pace" in pace:
-        color = PALETTE["green"]
-    elif "over pace" in pace:
-        color = PALETTE["red"]
-    elif "on pace" in pace:
-        color = PALETTE["yellow"]
-    else:
-        color = PALETTE["muted"]
-    plain = _truncate(pace, max(8, width - (label_width + 3)))
-    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {color}{plain}{RESET}"
-
-
-def _info_row(label: str, value: object | None, width: int) -> str:
-    label_width = 9
-    plain = _truncate(_plain(value), max(8, width - (label_width + 3)))
-    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {PALETTE['ink']}{plain}{RESET}"
-
-
-def _reset_row(label: str, value: object | None, width: int, now: datetime) -> str:
-    label_width = 9
-    plain = _truncate(
-        _format_reset_display(None if value is None else str(value), now),
-        max(8, width - (label_width + 3)),
-    )
-    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {PALETTE['cyan']}{plain}{RESET}"
-
-
-def _build_usage_rows(
-    data: dict[str, object],
-    width: int,
-    now: datetime,
-    windows: tuple[WindowRenderSpec, ...],
-) -> list[str]:
-    rows: list[str] = []
-    for window in windows:
-        percent = data.get(window.percent_key)
-        reset = data.get(window.reset_key)
-        rows.extend(
-            (
-                _metric_row(
-                    window.session_label,
-                    percent,
-                    None if reset is None else str(reset),
-                    width,
-                    now,
-                ),
-                _reset_row(window.reset_label, reset, width, now),
-            )
-        )
-        if window.pace_label:
-            rows.append(
-                _pace_row(
-                    window.pace_label,
-                    percent,
-                    None if reset is None else str(reset),
-                    width,
-                    now,
-                    window.window_hours,
-                )
-            )
-    return rows
-
-
-def _generic_snapshot_rows(
-    data: dict[str, object], width: int, source: str
-) -> list[str]:
-    rows = [_info_row("status", "ok", width), _info_row("source", source, width)]
-    for key, value in sorted(data.items()):
-        if key == "raw_text":
-            continue
-        label = key.replace("_", " ")
-        rows.append(_info_row(label[:12], value, width))
-    return rows[:6]
-
-
-def _provider_card(
-    snapshot: ProviderSnapshot, card_width: int, now: datetime
-) -> list[str]:
-    assert snapshot.data is not None
-    badge_text = (
-        _cached_badge_text(snapshot, now)
-        if "cached" in snapshot.source.lower()
-        else "live"
-    )
-    if snapshot.name == "Copilot":
-        rows = _copilot_rows(snapshot.data, card_width - 4, now)
-        return _card(
-            "Copilot",
-            "GitHub Copilot CLI usage view",
-            rows,
-            card_width,
-            PALETTE["cyan"],
-            True,
-            badge_text,
-        )
-    spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
-    if spec is None:
-        rows = _generic_snapshot_rows(snapshot.data, card_width - 4, snapshot.source)
-        return _card(
-            snapshot.name,
-            "provider usage view",
-            rows,
-            card_width,
-            PALETTE["cyan"],
-            True,
-            badge_text,
-        )
-
-    rows = _build_usage_rows(snapshot.data, card_width - 4, now, spec.windows)
-    return _card(
-        spec.title, spec.subtitle, rows, card_width, spec.accent, True, badge_text
-    )
-
-
 def _copilot_monthly_reset_target(now: datetime) -> datetime:
     utc_now = (
         now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
@@ -582,16 +352,26 @@ def _copilot_monthly_reset_target(now: datetime) -> datetime:
     return datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
 
 
-def _copilot_monthly_pace_label(percent_left: float | None, now: datetime) -> str:
-    if percent_left is None:
+def _billing_cycle_pace_label(
+    percent_left: float | None,
+    start_iso: str | None,
+    end_iso: str | None,
+    now: datetime,
+) -> str:
+    """Compute pace label for any billing cycle with known start and end dates."""
+    if percent_left is None or not start_iso or not end_iso:
         return "pace n/a"
-    utc_now = (
-        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
-    )
-    start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    end = _copilot_monthly_reset_target(utc_now)
+    try:
+        start = datetime.fromisoformat(start_iso)
+        end = datetime.fromisoformat(end_iso)
+    except ValueError:
+        return "pace n/a"
     total_seconds = max(1.0, (end - start).total_seconds())
-    remaining_seconds = max(0.0, (end - utc_now).total_seconds())
+    if start.tzinfo is None and now.tzinfo is not None:
+        now = now.replace(tzinfo=None)
+    elif start.tzinfo is not None and now.tzinfo is None:
+        now = now.replace(tzinfo=start.tzinfo)
+    remaining_seconds = max(0.0, (end - now).total_seconds())
     expected_remaining = (remaining_seconds / total_seconds) * 100.0
     delta = percent_left - expected_remaining
     diff_points = round(abs(delta), 1)
@@ -600,35 +380,6 @@ def _copilot_monthly_pace_label(percent_left: float | None, now: datetime) -> st
     if delta > 0:
         return f"under pace +{diff_points:.1f}pt"
     return f"over pace -{diff_points:.1f}pt"
-
-
-def _copilot_pace_row(label: str, pace_text: str, width: int) -> str:
-    label_width = 10
-    if "under pace" in pace_text:
-        color = PALETTE["green"]
-    elif "over pace" in pace_text:
-        color = PALETTE["red"]
-    elif "on pace" in pace_text:
-        color = PALETTE["yellow"]
-    else:
-        color = PALETTE["muted"]
-    plain = _truncate(pace_text, max(8, width - (label_width + 3)))
-    return f"{PALETTE['muted']}{label:<{label_width}}{RESET} {color}{plain}{RESET}"
-
-
-def _copilot_rows(data: dict[str, object], width: int, now: datetime) -> list[str]:
-    remaining = data.get("premium_percent_left")
-    percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
-    reset_value = (
-        data.get("premium_reset")
-        or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
-    )
-    pace_text = _copilot_monthly_pace_label(percent_left, now)
-    return [
-        _copilot_metric_row("month rem", percent_left, width),
-        _reset_row("month reset", reset_value, width, now),
-        _copilot_pace_row("month pace", pace_text, width),
-    ]
 
 
 def _provider_display_fields(
@@ -649,59 +400,464 @@ def _provider_display_fields(
     return display
 
 
-def _card(
-    title: str,
-    subtitle: str,
-    rows: list[str],
-    width: int,
-    accent: str,
-    ok: bool,
-    badge_text: str | None = None,
-) -> list[str]:
-    inner = width - 4
-    top = f"{PALETTE['border']}+{'-' * (width - 2)}+{RESET}"
-    bottom = f"{PALETTE['border']}+{'-' * (width - 2)}+{RESET}"
-    safe_title = _truncate(title, inner - 2)
-    safe_subtitle = _truncate(subtitle, inner)
-    colored_title = f"{BOLD}{accent}{safe_title}{RESET}"
-    title_line = f"{PALETTE['border']}|{RESET} {_pad_colored(colored_title, inner)} {PALETTE['border']}|{RESET}"
-    subtitle_badge = _badge(
-        badge_text or ("live" if ok else "issue"), PALETTE["ink"], PALETTE["panel"]
+# ---------------------------------------------------------------------------
+# Rich style helpers
+# ---------------------------------------------------------------------------
+
+
+def _style_for_percent(percent: float | None) -> str:
+    """Return a Rich theme style name for a usage percentage."""
+    if percent is None:
+        return "text.muted"
+    if percent >= 70:
+        return "bar.green"
+    if percent >= 40:
+        return "bar.yellow"
+    if percent >= 20:
+        return "bar.orange"
+    return "bar.red"
+
+
+ACCENT_STYLES: dict[str, str] = {
+    "Codex": "accent.codex",
+    "Claude": "accent.claude",
+    "Gemini": "accent.gemini",
+    "Copilot": "accent.copilot",
+    "Cursor": "accent.cursor",
+    "Vibe": "accent.vibe",
+}
+
+
+# ---------------------------------------------------------------------------
+# Rich renderables
+# ---------------------------------------------------------------------------
+
+
+class PercentageBar:
+    """Custom Rich renderable: a static percentage bar using block characters."""
+
+    def __init__(self, percent: float | None, style: str) -> None:
+        self.percent = percent
+        self.style = style
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ) -> RenderResult:
+        width = options.max_width
+        if self.percent is None:
+            yield Text("·" * width, style="shadow")
+            return
+        filled = max(0, min(width, round(width * self.percent / 100)))
+        empty = max(0, width - filled)
+        bar = Text()
+        if filled > 1:
+            bar.append("▓" * (filled - 1), style=self.style)
+        if filled > 0:
+            bar.append("█", style=self.style)
+        if empty > 0:
+            bar.append("░" * empty, style="shadow")
+        yield bar
+
+
+# ---------------------------------------------------------------------------
+# Panel builders
+# ---------------------------------------------------------------------------
+
+
+def build_provider_panel(
+    snapshot: ProviderSnapshot, now: datetime, *, threshold: float = 20.0
+) -> Panel:
+    """Build a Rich Panel for a single provider snapshot."""
+    accent = ACCENT_STYLES.get(snapshot.name, "text.cyan")
+    below_threshold = False
+    if snapshot.ok and snapshot.data:
+        for key in (
+            "credit_percent_left",
+            "premium_percent_left",
+            "session_percent_left",
+            "five_hour_percent_left",
+            "flash_percent_left",
+        ):
+            value = snapshot.data.get(key)
+            if isinstance(value, (int, float)) and float(value) < threshold:
+                below_threshold = True
+                break
+        usage = snapshot.data.get("usage_percent")
+        if isinstance(usage, (int, float)) and (100.0 - float(usage)) < threshold:
+            below_threshold = True
+    title_text = f"[bold {accent}]{snapshot.name}[/]"
+    if below_threshold:
+        title_text += " [bold text.red][!][/]"
+
+    if not snapshot.ok:
+        error_msg = _truncate(snapshot.error or "unknown error", 60)
+        body = Text.from_markup(f"[text.red]error:[/] [text.muted]{error_msg}[/]")
+        return Panel(
+            body,
+            title=title_text,
+            border_style="text.red",
+            padding=(0, 1),
+        )
+
+    assert snapshot.data is not None
+    badge_text = (
+        _cached_badge_text(snapshot, now)
+        if "cached" in snapshot.source.lower()
+        else "live"
     )
-    badge_line = f"{PALETTE['border']}|{RESET} {_pad_colored(subtitle_badge, inner)} {PALETTE['border']}|{RESET}"
-    subtitle_line = f"{PALETTE['border']}|{RESET} {_pad_colored(safe_subtitle, inner)} {PALETTE['border']}|{RESET}"
-    body = [
-        f"{PALETTE['border']}|{RESET} {_pad_colored(_truncate_colored(row, inner), inner)} {PALETTE['border']}|{RESET}"
-        for row in rows
+
+    spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
+    custom_subtitles = {
+        "Copilot": "Copilot usage",
+        "Cursor": "Cursor usage",
+        "Vibe": "Vibe usage",
+    }
+    subtitle_text = custom_subtitles.get(
+        snapshot.name, spec.subtitle if spec else "usage"
+    )
+
+    body = Table.grid(padding=(0, 1))
+    body.add_column(min_width=9)
+    body.add_column(min_width=6)
+    body.add_column(ratio=1)
+
+    if snapshot.name == "Copilot":
+        _add_copilot_rows(body, snapshot.data, now)
+    elif snapshot.name == "Cursor":
+        _add_cursor_rows(body, snapshot.data, now)
+    elif snapshot.name == "Vibe":
+        _add_vibe_rows(body, snapshot.data, now)
+    elif spec:
+        _add_usage_rows(body, snapshot.data, now, spec.windows)
+    else:
+        _add_generic_rows(body, snapshot.data, snapshot.source)
+
+    return Panel(
+        body,
+        title=title_text,
+        subtitle=f"[text.muted]{subtitle_text}[/]  [{accent}]{badge_text}[/]",
+        border_style="border",
+        subtitle_align="left",
+        padding=(0, 1),
+    )
+
+
+def _add_usage_rows(
+    table: Table,
+    data: dict[str, object],
+    now: datetime,
+    windows: tuple[WindowRenderSpec, ...],
+) -> None:
+    """Add metric/reset/pace rows for standard windowed providers."""
+    for window in windows:
+        percent = data.get(window.percent_key)
+        reset = data.get(window.reset_key)
+        reset_str = None if reset is None else str(reset)
+        style = _style_for_percent(percent)
+        value_text = _format_percent_value(percent)
+        table.add_row(
+            Text(window.session_label, style="text.muted"),
+            Text(value_text, style=style),
+            PercentageBar(percent, style),
+        )
+        reset_display = _format_reset_display(reset_str, now)
+        table.add_row(
+            Text(window.reset_label, style="text.muted"),
+            Text(reset_display, style="text.cyan"),
+            Text(""),
+        )
+        if window.pace_label:
+            pace = _pace_label(percent, reset_str, now, window.window_hours)
+            if "under pace" in pace:
+                pace_style = "text.green"
+            elif "over pace" in pace:
+                pace_style = "text.red"
+            elif "on pace" in pace:
+                pace_style = "text.yellow"
+            else:
+                pace_style = "text.muted"
+            table.add_row(
+                Text(window.pace_label, style="text.muted"),
+                Text(pace, style=pace_style),
+                Text(""),
+            )
+
+
+def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> None:
+    """Add Copilot-specific monthly metric rows."""
+    remaining = data.get("premium_percent_left")
+    percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
+    reset_value = (
+        data.get("premium_reset")
+        or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
+    )
+    utc_now = (
+        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
+    )
+    start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    end = _copilot_monthly_reset_target(utc_now)
+    pace_text = _billing_cycle_pace_label(
+        percent_left, start.isoformat(), end.isoformat(), utc_now
+    )
+
+    style = _style_for_percent(percent_left)
+    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    table.add_row(
+        Text("month rem", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
+    )
+    reset_display = _format_reset_display(
+        None if reset_value is None else str(reset_value), now
+    )
+    table.add_row(
+        Text("month reset", style="text.muted"),
+        Text(reset_display, style="text.cyan"),
+        Text(""),
+    )
+    if "under pace" in pace_text:
+        pace_style = "text.green"
+    elif "over pace" in pace_text:
+        pace_style = "text.red"
+    elif "on pace" in pace_text:
+        pace_style = "text.yellow"
+    else:
+        pace_style = "text.muted"
+    table.add_row(
+        Text("month pace", style="text.muted"),
+        Text(pace_text, style=pace_style),
+        Text(""),
+    )
+
+
+def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> None:
+    """Add Cursor credit usage rows."""
+    percent_left = data.get("credit_percent_left")
+    if isinstance(percent_left, (int, float)):
+        percent_left = float(percent_left)
+    else:
+        percent_left = None
+
+    reset_value = data.get("billing_cycle_end")
+    plan_name = data.get("plan_name")
+
+    style = _style_for_percent(percent_left)
+    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    table.add_row(
+        Text("credit rem", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
+    )
+    reset_display = _format_reset_display(
+        None if reset_value is None else str(reset_value), now
+    )
+    table.add_row(
+        Text("resets", style="text.muted"),
+        Text(reset_display, style="text.cyan"),
+        Text(""),
+    )
+    start_iso = data.get("billing_cycle_start")
+    end_iso = data.get("billing_cycle_end_iso")
+    pace_text = _billing_cycle_pace_label(
+        percent_left,
+        str(start_iso) if isinstance(start_iso, str) else None,
+        str(end_iso) if isinstance(end_iso, str) else None,
+        now,
+    )
+    if "under pace" in pace_text:
+        pace_style = "text.green"
+    elif "over pace" in pace_text:
+        pace_style = "text.red"
+    elif "on pace" in pace_text:
+        pace_style = "text.yellow"
+    else:
+        pace_style = "text.muted"
+    table.add_row(
+        Text("credit pace", style="text.muted"),
+        Text(pace_text, style=pace_style),
+        Text(""),
+    )
+    if plan_name:
+        table.add_row(
+            Text("plan", style="text.muted"),
+            Text(str(plan_name), style="text.ink"),
+            Text(""),
+        )
+
+
+def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None:
+    """Add Mistral Vibe monthly usage rows."""
+    usage_percent = data.get("usage_percent")
+    if isinstance(usage_percent, (int, float)):
+        percent_left = max(0.0, 100.0 - float(usage_percent))
+    else:
+        percent_left = None
+
+    reset_value = data.get("reset_at")
+
+    style = _style_for_percent(percent_left)
+    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    table.add_row(
+        Text("month rem", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
+    )
+    reset_display = _format_reset_display(
+        None if reset_value is None else str(reset_value), now
+    )
+    table.add_row(
+        Text("month reset", style="text.muted"),
+        Text(reset_display, style="text.cyan"),
+        Text(""),
+    )
+    start_iso = data.get("start_date")
+    end_iso = data.get("end_date")
+    pace_text = _billing_cycle_pace_label(
+        percent_left,
+        str(start_iso) if isinstance(start_iso, str) else None,
+        str(end_iso) if isinstance(end_iso, str) else None,
+        now,
+    )
+    if "under pace" in pace_text:
+        pace_style = "text.green"
+    elif "over pace" in pace_text:
+        pace_style = "text.red"
+    elif "on pace" in pace_text:
+        pace_style = "text.yellow"
+    else:
+        pace_style = "text.muted"
+    table.add_row(
+        Text("month pace", style="text.muted"),
+        Text(pace_text, style=pace_style),
+        Text(""),
+    )
+
+
+def _add_generic_rows(table: Table, data: dict[str, object], source: str) -> None:
+    """Add generic key-value rows for unknown providers."""
+    table.add_row(
+        Text("status", style="text.muted"),
+        Text("ok", style="text.ink"),
+        Text(""),
+    )
+    table.add_row(
+        Text("source", style="text.muted"),
+        Text(source, style="text.ink"),
+        Text(""),
+    )
+    count = 0
+    for key, value in sorted(data.items()):
+        if key == "raw_text":
+            continue
+        label = key.replace("_", " ")[:12]
+        table.add_row(
+            Text(label, style="text.muted"),
+            Text(_plain(value), style="text.ink"),
+            Text(""),
+        )
+        count += 1
+        if count >= 4:
+            break
+
+
+# ---------------------------------------------------------------------------
+# Dashboard composition
+# ---------------------------------------------------------------------------
+
+
+def build_dashboard(
+    snapshots: list[ProviderSnapshot],
+    updated_at: datetime,
+    next_refresh_seconds: int,
+    *,
+    updating: bool = False,
+    update_elapsed: float = 0.0,
+    threshold: float = 20.0,
+) -> Group:
+    """Build the full dashboard as a Rich Group."""
+    now = updated_at
+
+    # Header
+    if updating:
+        refresh_text = f"[text.cyan]updating {update_elapsed:0.1f}s[/]"
+    else:
+        refresh_text = f"[text.cyan]refresh {next_refresh_seconds:02d}s[/]"
+    header = Text.from_markup(
+        f"[bold text.cyan]AI Usage Monitor[/]  "
+        f"[text.ink]updated {updated_at.strftime('%a %b %d %I:%M:%S %p')}[/]  "
+        f"{refresh_text}"
+    )
+    subtitle = Text(
+        "Live usage monitor for Claude, Codex, Copilot, Cursor, Gemini, and Vibe",
+        style="dim text.muted",
+    )
+
+    # Build panels
+    panels = [
+        build_provider_panel(snap, now, threshold=threshold) for snap in snapshots
     ]
-    return [top, title_line, badge_line, subtitle_line, *body, bottom]
+
+    # Layout: 2-column grid if multiple panels
+    if len(panels) > 1:
+        grid = Table.grid(padding=(0, 1))
+        grid.add_column(ratio=1)
+        grid.add_column(ratio=1)
+        for i in range(0, len(panels), 2):
+            if i + 1 < len(panels):
+                grid.add_row(panels[i], panels[i + 1])
+            else:
+                grid.add_row(panels[i], Text(""))
+        body: RenderableType = grid
+    elif panels:
+        body = panels[0]
+    else:
+        body = Text("No providers configured.", style="text.muted")
+
+    footer = Text(
+        "q quit  r refresh  Ctrl-C exit  --json for machine output  --debug for raw captures",
+        style="dim text.muted",
+    )
+
+    return Group(header, subtitle, Text(""), body, Text(""), footer)
 
 
-def _merge_columns(left: list[str], right: list[str], gap: int = 2) -> list[str]:
-    left_width = max(_visible_length(line) for line in left)
-    right_width = max(_visible_length(line) for line in right)
-    height = max(len(left), len(right))
-    rows: list[str] = []
-    for idx in range(height):
-        left_line = left[idx] if idx < len(left) else " " * left_width
-        right_line = right[idx] if idx < len(right) else " " * right_width
-        rows.append(f"{_pad_colored(left_line, left_width)}{' ' * gap}{right_line}")
-    return rows
+def build_loading_screen(
+    message: str, updated_at: datetime, elapsed_seconds: float = 0.0
+) -> Group:
+    """Build the loading/startup screen as a Rich Group."""
+    header = Text.from_markup(
+        f"[bold text.cyan]AI Usage Monitor[/]  "
+        f"[text.ink]updated {updated_at.strftime('%a %b %d %I:%M:%S %p')}[/]  "
+        f"[text.cyan]startup {elapsed_seconds:0.1f}s[/]"
+    )
+    subtitle = Text(
+        "Live usage monitor for Claude, Codex, Copilot, Cursor, Gemini, and Vibe",
+        style="dim text.muted",
+    )
+
+    body = Table.grid(padding=(0, 1))
+    body.add_column()
+    spinner = Spinner("dots", text=Text(message, style="text.ink"), style="text.cyan")
+    body.add_row(spinner)
+    body.add_row(Text("First refresh can take a few seconds.", style="text.muted"))
+    body.add_row(Text("PTY sessions are reused after startup.", style="text.muted"))
+
+    panel = Panel(
+        body,
+        title="[bold text.cyan]Warming Up[/]",
+        subtitle="[text.muted]getting initial usage[/]",
+        border_style="border",
+        subtitle_align="left",
+        padding=(0, 1),
+    )
+
+    footer = Text("Ctrl-C to exit.", style="dim text.muted")
+    return Group(header, subtitle, Text(""), panel, Text(""), footer)
 
 
-def _merge_card_grid(
-    cards: list[list[str]], gap: int = 2, columns: int = 2
-) -> list[str]:
-    rows: list[str] = []
-    for start in range(0, len(cards), columns):
-        row_cards = cards[start : start + columns]
-        merged = row_cards[0]
-        for card in row_cards[1:]:
-            merged = _merge_columns(merged, card, gap=gap)
-        if rows:
-            rows.append("")
-        rows.extend(merged)
-    return rows
+# ---------------------------------------------------------------------------
+# JSON output (no Rich dependency — plain string)
+# ---------------------------------------------------------------------------
 
 
 def render_json(snapshots: list[ProviderSnapshot], updated_at: datetime) -> str:
@@ -720,123 +876,3 @@ def render_json(snapshots: list[ProviderSnapshot], updated_at: datetime) -> str:
         ],
     }
     return json.dumps(payload, indent=2, sort_keys=True)
-
-
-def render_loading_screen(
-    message: str, updated_at: datetime, frame: int = 0, elapsed_seconds: float = 0.0
-) -> str:
-    spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[frame % 10]
-    width = _terminal_width()
-    card_width = min(68, max(60, width - 8))
-    hero = [
-        f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}  {_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {_badge(f'startup {elapsed_seconds:0.1f}s', PALETTE['cyan'])}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
-        "",
-    ]
-    rows = [
-        f"{PALETTE['cyan']}{spinner}{RESET} {PALETTE['ink']}{message}{RESET}",
-        f"{PALETTE['muted']}First refresh can take a few seconds.{RESET}",
-        f"{PALETTE['muted']}PTY sessions are reused after startup.{RESET}",
-    ]
-    card = _card(
-        "Warming Up", "getting initial usage", rows, card_width, PALETTE["cyan"], True
-    )
-    footer = [
-        "",
-        f"{DIM}{PALETTE['muted']}Ctrl-C to exit.{RESET}",
-    ]
-    lines = [*hero, *card, *footer]
-    return "\n".join(_apply_right_gutter(lines, width))
-
-
-def render_screen(
-    snapshots: list[ProviderSnapshot],
-    updated_at: datetime,
-    next_refresh_seconds: int,
-    *,
-    updating: bool = False,
-    update_elapsed: float = 0.0,
-    update_frame: int = 0,
-) -> str:
-    width = _terminal_width()
-    now = updated_at
-
-    header_title = f"{BOLD}{PALETTE['cyan']}AI Usage Monitor{RESET}"
-    if updating:
-        spinner = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"[update_frame % 10]
-        refresh_badge = _badge(
-            f"updating {spinner} {update_elapsed:0.1f}s", PALETTE["cyan"]
-        )
-    else:
-        refresh_badge = _badge(f"refresh {next_refresh_seconds:02d}s", PALETTE["cyan"])
-    header_meta = f"{_badge(updated_at.strftime('%a %b %d %I:%M:%S %p'), PALETTE['ink'])} {refresh_badge}"
-    hero = [
-        f"{header_title}  {header_meta}",
-        f"{DIM}{PALETTE['muted']}PTY-driven live usage scrape for local Codex, Claude, Gemini, and Copilot sessions{RESET}",
-        "",
-    ]
-
-    cards: list[list[str]] = []
-    gap = 2
-    compact_split_width = 40
-    wide_split_width = 42
-    split_threshold = (compact_split_width * 2) + gap + 2
-    extra_split_threshold = (wide_split_width * 2) + gap + 2
-    if width >= extra_split_threshold:
-        card_width = wide_split_width
-    elif width >= split_threshold:
-        card_width = compact_split_width
-    else:
-        card_width = min(68, max(60, width - 8))
-
-    for snapshot in snapshots:
-        if not snapshot.ok:
-            error_rows = [
-                _info_row("status", "error", card_width - 4),
-                _info_row("source", snapshot.source, card_width - 4),
-                f"{PALETTE['red']}{_truncate(snapshot.error or 'unknown error', card_width - 16)}{RESET}",
-            ]
-            cards.append(
-                _card(
-                    snapshot.name,
-                    "probe needs attention",
-                    error_rows,
-                    card_width,
-                    PALETTE["red"],
-                    False,
-                )
-            )
-            continue
-
-        cards.append(_provider_card(snapshot, card_width, now))
-
-    if len(cards) > 1 and width >= split_threshold:
-        body = _merge_card_grid(cards, gap=gap, columns=2)
-    else:
-        body = []
-        for idx, card in enumerate(cards):
-            if idx:
-                body.append("")
-            body.extend(card)
-
-    footer = [
-        "",
-        f"{DIM}{PALETTE['muted']}Ctrl-C to exit. Use --json for machine-readable output and --debug for raw capture tails.{RESET}",
-    ]
-    lines = [*hero, *body, *footer]
-    return "\n".join(_apply_right_gutter(lines, width))
-
-
-def write_screen(text: str, *, repaint: bool = False) -> None:
-    if repaint:
-        sys.stdout.write(CLEAR)
-    sys.stdout.write(text)
-    sys.stdout.flush()
-
-
-def countdown_sleep(seconds: int, render_frame: callable) -> None:
-    """Sleep while updating the dashboard countdown once per second."""
-
-    for remaining in range(seconds, 0, -1):
-        render_frame(remaining)
-        time.sleep(1)

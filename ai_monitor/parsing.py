@@ -54,10 +54,14 @@ def parse_number(text: str | None) -> float | None:
         return None
 
 
-def percent_from_line(line: str, assume_remaining_when_unclear: bool = False) -> int | None:
+def percent_from_line(
+    line: str, assume_remaining_when_unclear: bool = False
+) -> int | None:
     """Extract a remaining-percent value from a rendered usage line."""
 
-    if "|" in line and any(model in line.lower() for model in ("opus", "sonnet", "haiku", "default")):
+    if "|" in line and any(
+        model in line.lower() for model in ("opus", "sonnet", "haiku", "default")
+    ):
         return None
     match = PERCENT_RE.search(line)
     if not match:
@@ -80,7 +84,11 @@ def extract_reset_from_line(line: str) -> str | None:
     if not match:
         return None
     value = match.group(1).strip()
-    value = re.split(r"(?i)\b(?:Weekly limit|5h limit|Current session|Currentweek|Current week)\b", value, maxsplit=1)[0]
+    value = re.split(
+        r"(?i)\b(?:Weekly limit|5h limit|Current session|Currentweek|Current week)\b",
+        value,
+        maxsplit=1,
+    )[0]
     value = BLOCK_CHARS_RE.sub("", value)
     value = re.sub(r"[│\[\]]", " ", value)
     value = re.sub(r"\s+", " ", value).strip().rstrip(" )")
@@ -160,6 +168,36 @@ class CopilotStatus:
         return asdict(self)
 
 
+@dataclass(slots=True)
+class VibeStatus:
+    usage_percent: float | None
+    reset_at: str | None
+    payg_enabled: bool | None
+    start_date: str | None
+    end_date: str | None
+    raw_text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(slots=True)
+class CursorStatus:
+    credit_percent_left: float | None
+    auto_percent_used: float | None
+    api_percent_used: float | None
+    remaining_cents: int | None
+    limit_cents: int | None
+    plan_name: str | None
+    billing_cycle_start: str | None
+    billing_cycle_end: str | None
+    billing_cycle_end_iso: str | None
+    raw_text: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 def parse_codex_status(text: str) -> CodexStatus:
     """Parse Codex `/status` output after PTY capture."""
 
@@ -170,13 +208,19 @@ def parse_codex_status(text: str) -> CodexStatus:
     credits = parse_number(credits_match.group(1) if credits_match else None)
 
     lines = clean.splitlines()
-    five_idx = next((idx for idx, line in enumerate(lines) if "5h limit" in line.lower()), None)
-    week_idx = next((idx for idx, line in enumerate(lines) if "weekly limit" in line.lower()), None)
+    five_idx = next(
+        (idx for idx, line in enumerate(lines) if "5h limit" in line.lower()), None
+    )
+    week_idx = next(
+        (idx for idx, line in enumerate(lines) if "weekly limit" in line.lower()), None
+    )
 
     def combined_line(start_idx: int | None) -> str | None:
         if start_idx is None:
             return None
-        window = [part.strip() for part in lines[start_idx : start_idx + 2] if part.strip()]
+        window = [
+            part.strip() for part in lines[start_idx : start_idx + 2] if part.strip()
+        ]
         return " ".join(window) if window else None
 
     five_line = combined_line(five_idx)
@@ -249,7 +293,11 @@ def _trim_to_latest_usage_panel(text: str) -> str:
     lower = tail.lower()
     if "usage" not in lower:
         return text
-    if "%" not in tail and "loading usage" not in lower and "failed to load usage data" not in lower:
+    if (
+        "%" not in tail
+        and "loading usage" not in lower
+        and "failed to load usage data" not in lower
+    ):
         return text
     return tail
 
@@ -283,7 +331,10 @@ def _extract_reset_for_label(lines: list[str], label: str) -> str | None:
             continue
         for candidate in lines[idx : idx + 14]:
             candidate_normalized = _normalize_label(candidate)
-            if candidate_normalized.startswith("current") and normalized_label not in candidate_normalized:
+            if (
+                candidate_normalized.startswith("current")
+                and normalized_label not in candidate_normalized
+            ):
                 break
             reset = extract_reset_from_line(candidate)
             if reset:
@@ -310,7 +361,9 @@ def _normalize_compact_reset(value: str) -> str:
     return f"Resets {compact}".strip()
 
 
-def _extract_compact_claude_rows(panel: str) -> dict[str, tuple[int | None, str | None]]:
+def _extract_compact_claude_rows(
+    panel: str,
+) -> dict[str, tuple[int | None, str | None]]:
     label_re = re.compile(
         r"Current session|Current week \(all models\)|Current week \(Opus\)|Current week \(Sonnet only\)|Current week \(Sonnet\)",
         re.IGNORECASE,
@@ -326,11 +379,19 @@ def _extract_compact_claude_rows(panel: str) -> dict[str, tuple[int | None, str 
         segment = squashed[match.start() : end]
         label = match.group(0).lower()
         percent_left = None
-        percent_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*used", segment, re.IGNORECASE)
+        percent_match = re.search(
+            r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*used", segment, re.IGNORECASE
+        )
         if percent_match:
-            percent_left = max(0, min(100, int(round(100 - float(percent_match.group(1))))))
+            percent_left = max(
+                0, min(100, int(round(100 - float(percent_match.group(1)))))
+            )
         else:
-            left_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*(?:left|remaining|available)", segment, re.IGNORECASE)
+            left_match = re.search(
+                r"([0-9]{1,3}(?:\.[0-9]+)?)\s*%\s*(?:left|remaining|available)",
+                segment,
+                re.IGNORECASE,
+            )
             if left_match:
                 percent_left = max(0, min(100, int(round(float(left_match.group(1))))))
 
@@ -356,15 +417,25 @@ def _is_overcaptured_reset(value: str | None) -> bool:
 def _extract_usage_error(text: str) -> str | None:
     lower = text.lower()
     compact = "".join(lower.split())
-    if "do you trust the files in this folder?" in lower and "current session" not in lower:
+    if (
+        "do you trust the files in this folder?" in lower
+        and "current session" not in lower
+    ):
         return "Claude CLI is waiting for a folder trust prompt"
-    if "/usage is only available for subscription plans" in lower or "/usageisonlyvilableforsubscriptionplans" in compact:
+    if (
+        "/usage is only available for subscription plans" in lower
+        or "/usageisonlyvilableforsubscriptionplans" in compact
+    ):
         return "Claude CLI says /usage is only available for subscription plans"
     if "rate limited" in lower or "ratelimited" in compact:
         return "Claude CLI usage endpoint is rate limited right now"
     if "failed to load usage data" in lower or "failedtoloadusagedata" in compact:
         return "Claude CLI could not load usage data"
-    match = re.search(r"Failed\s*to\s*load\s*usage\s*data:\s*(\{.*\})", text, re.IGNORECASE | re.DOTALL)
+    match = re.search(
+        r"Failed\s*to\s*load\s*usage\s*data:\s*(\{.*\})",
+        text,
+        re.IGNORECASE | re.DOTALL,
+    )
     if match:
         try:
             payload = json.loads(match.group(1).replace("\n", "").replace("\r", ""))
@@ -382,7 +453,9 @@ def _extract_usage_error(text: str) -> str | None:
     return None
 
 
-def parse_claude_status(usage_text: str, status_text: str | None = None) -> ClaudeStatus:
+def parse_claude_status(
+    usage_text: str, status_text: str | None = None
+) -> ClaudeStatus:
     """Parse Claude `/usage` output after PTY capture."""
 
     usage_clean = compact_whitespace(strip_ansi(usage_text))
@@ -398,7 +471,11 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
     lines = panel.splitlines()
     compact = "".join(panel.lower().split())
     has_weekly = "currentweek" in compact
-    has_opus = "currentweek(opus)" in compact or "currentweek(sonnetonly)" in compact or "currentweek(sonnet)" in compact
+    has_opus = (
+        "currentweek(opus)" in compact
+        or "currentweek(sonnetonly)" in compact
+        or "currentweek(sonnet)" in compact
+    )
 
     session = _extract_percent_for_label(lines, "Current session")
     weekly = _extract_percent_for_label(lines, "Current week (all models)")
@@ -410,7 +487,12 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
 
     session_idx = _find_line_index(lines, "Current session")
     weekly_idx = _find_line_index(lines, "Current week (all models)")
-    opus_idx = _find_line_index(lines, "Current week (Opus)", "Current week (Sonnet only)", "Current week (Sonnet)")
+    opus_idx = _find_line_index(
+        lines,
+        "Current week (Opus)",
+        "Current week (Sonnet only)",
+        "Current week (Sonnet)",
+    )
 
     if session is None and session_idx is not None:
         session = _extract_percent_after_index(lines, session_idx)
@@ -419,7 +501,9 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
     if has_opus and opus is None and opus_idx is not None:
         opus = _extract_percent_after_index(lines, opus_idx)
 
-    ordered = [pct for pct in (percent_from_line(line) for line in lines) if pct is not None]
+    ordered = [
+        pct for pct in (percent_from_line(line) for line in lines) if pct is not None
+    ]
     if session is None and ordered:
         session = ordered[0]
     if has_weekly and weekly is None and len(ordered) > 1:
@@ -441,10 +525,22 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
         weekly = weekly_row[0]
     if has_opus and opus is None and opus_row:
         opus = opus_row[0]
-    if has_weekly and weekly_row and weekly_row[0] is not None and session_row and session_row[0] is not None:
+    if (
+        has_weekly
+        and weekly_row
+        and weekly_row[0] is not None
+        and session_row
+        and session_row[0] is not None
+    ):
         if weekly == session and weekly_row[0] != session_row[0]:
             weekly = weekly_row[0]
-    if has_opus and opus_row and opus_row[0] is not None and session_row and session_row[0] is not None:
+    if (
+        has_opus
+        and opus_row
+        and opus_row[0] is not None
+        and session_row
+        and session_row[0] is not None
+    ):
         if opus == session and opus_row[0] != session_row[0]:
             opus = opus_row[0]
 
@@ -452,21 +548,35 @@ def parse_claude_status(usage_text: str, status_text: str | None = None) -> Clau
         raise ValueError("Missing Current session in Claude output")
 
     primary_reset = _extract_reset_for_label(lines, "Current session")
-    secondary_reset = _extract_reset_for_label(lines, "Current week (all models)") if has_weekly else None
+    secondary_reset = (
+        _extract_reset_for_label(lines, "Current week (all models)")
+        if has_weekly
+        else None
+    )
     opus_reset = (
-        _extract_reset_for_label(lines, "Current week (Opus)")
-        or _extract_reset_for_label(lines, "Current week (Sonnet only)")
-        or _extract_reset_for_label(lines, "Current week (Sonnet)")
-    ) if has_opus else None
+        (
+            _extract_reset_for_label(lines, "Current week (Opus)")
+            or _extract_reset_for_label(lines, "Current week (Sonnet only)")
+            or _extract_reset_for_label(lines, "Current week (Sonnet)")
+        )
+        if has_opus
+        else None
+    )
 
     if (not primary_reset or _is_overcaptured_reset(primary_reset)) and session_row:
         primary_reset = session_row[1]
-    if has_weekly and (not secondary_reset or _is_overcaptured_reset(secondary_reset)) and weekly_row:
+    if (
+        has_weekly
+        and (not secondary_reset or _is_overcaptured_reset(secondary_reset))
+        and weekly_row
+    ):
         secondary_reset = weekly_row[1]
     if has_opus and (not opus_reset or _is_overcaptured_reset(opus_reset)) and opus_row:
         opus_reset = opus_row[1]
 
-    account_email, account_organization, login_method = _extract_identity(f"{usage_clean}\n{status_clean}")
+    account_email, account_organization, login_method = _extract_identity(
+        f"{usage_clean}\n{status_clean}"
+    )
 
     return ClaudeStatus(
         session_percent_left=session,
@@ -487,14 +597,18 @@ def _normalize_gemini_line(line: str) -> str:
     return re.sub(r"\s+", " ", line).strip()
 
 
-def _extract_gemini_quota_row(lines: list[str], model_markers: tuple[str, ...]) -> tuple[int | None, str | None]:
+def _extract_gemini_quota_row(
+    lines: list[str], model_markers: tuple[str, ...]
+) -> tuple[int | None, str | None]:
     for raw_line in lines:
         line = _normalize_gemini_line(raw_line)
         lower = line.lower()
         if not any(marker in lower for marker in model_markers):
             continue
         percent_match = re.search(r"([0-9]{1,3}(?:\.[0-9]+)?)%", line)
-        reset_match = re.search(r"(resets?\s+in\s+\d+h(?:\s+\d+m)?)", line, re.IGNORECASE)
+        reset_match = re.search(
+            r"(resets?\s+in\s+\d+h(?:\s+\d+m)?)", line, re.IGNORECASE
+        )
         percent = int(round(float(percent_match.group(1)))) if percent_match else None
         reset = reset_match.group(1) if reset_match else None
         return percent, reset
@@ -508,7 +622,11 @@ def parse_gemini_status(text: str) -> GeminiStatus:
     if not clean:
         raise ValueError("empty Gemini output")
 
-    lines = [_normalize_gemini_line(line) for line in clean.splitlines() if _normalize_gemini_line(line)]
+    lines = [
+        _normalize_gemini_line(line)
+        for line in clean.splitlines()
+        if _normalize_gemini_line(line)
+    ]
     flash_percent, flash_reset = _extract_gemini_quota_row(
         lines,
         ("gemini-2.5-flash ", "gemini-2.5-flash-lite", "gemini-3-flash-preview"),
@@ -566,8 +684,14 @@ def parse_copilot_status(text: str) -> CopilotStatus:
     if not clean:
         raise ValueError("empty Copilot output")
 
-    request_matches = re.findall(r"Requests\s+(\d+)\s+Premium(?:\s+\(([^)]+)\))?", clean, re.IGNORECASE)
-    remaining_matches = re.findall(r"Remaining\s+reqs?\.\s*:?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%", clean, re.IGNORECASE)
+    request_matches = re.findall(
+        r"Requests\s+(\d+)\s+Premium(?:\s+\(([^)]+)\))?", clean, re.IGNORECASE
+    )
+    remaining_matches = re.findall(
+        r"Remaining\s+reqs?\.\s*:?\s*([0-9]{1,3}(?:\.[0-9]+)?)\s*%",
+        clean,
+        re.IGNORECASE,
+    )
     if not request_matches and not remaining_matches:
         raise ValueError("could not parse Copilot premium requests")
 

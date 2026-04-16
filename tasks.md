@@ -15,3 +15,12 @@
 - [x] Restore live startup and countdown timers while preserving in-place terminal repaint behavior.
 - [x] Replace terminal repaint strategy with cursor-relative redraw to keep animated frames in-place across terminals with inconsistent absolute-home/alternate-screen support.
 - [x] Fix frame accumulation regression: cursor-relative repaint fails when content exceeds terminal height; replaced with full-clear (`\033[2J\033[H`) repaint strategy.
+- [x] Replace hand-rolled ANSI rendering with `rich` library (Live, Panel, Table.grid, custom PercentageBar). See `plans/rich-rendering-refactor-tasks.md` for full task breakdown.
+- [x] Make the display more compact (reduce vertical space per card, tighter grid). (Achieved as side effect of Rich Panel rendering.)
+- [x] Add Mistral (vibe) as a fifth monitored provider. (Cookie-based auth to console.mistral.ai API.)
+- [x] Add Cursor agent usage as a sixth monitored provider. (Direct API to api2.cursor.sh with SQLite token.)
+- [x] Add keyboard shortcuts in live mode (e.g., `r` to force refresh, `q` to quit).
+- [x] Add config file for enabling/disabling providers.
+- [x] Add notification hooks when usage crosses thresholds (e.g., under 20%).
+- [ ] Add `--web` mode to serve the dashboard as a local HTML page.
+- [ ] Add system tray / menu bar integration.

@@ -2,8 +2,23 @@
 
 ## 2026-04-15
 
-- Fixed dashboard frame accumulation bug: frames were printing below each other instead of repainting in-place. Root cause was cursor-relative repaint (`cursor-up N + clear-to-end`) failing when content is taller than the terminal window — lines scroll off the top and `\033[NA` cannot retrieve them. Fixed by switching `write_screen` to always emit `\033[2J\033[H` (erase all + cursor home) before each repainted frame. This also handles terminal resize automatically since `_terminal_width()` re-queries on every frame.
-- Removed `_LAST_FRAME_LINES` tracking, `_TERMINAL_RESIZED` flag, and SIGWINCH handler — none are needed with the full-clear repaint strategy.
+- Extracted a shared Safari `Cookies.binarycookies` parser and reused it for both Cursor and Vibe auth cookie flows.
+- Added generalized billing-cycle pace logic and wired pace rows for Cursor (`credit pace`) and Vibe (`month pace`).
+- Removed the Vibe `pay-as-you-go` row from the dashboard card to reduce visual noise.
+- Collapsed provider error cards to a compact single-line message panel.
+- Added live keyboard shortcuts: `q` quits immediately and `r` triggers an immediate refresh.
+- Added optional `.ai_monitor.json` configuration (`providers`, `interval`, `threshold`) plus `--providers` CLI override filtering.
+- Added threshold notifications (macOS `osascript`) with one-shot crossing semantics and automatic reset when recovered.
+- Added a `[!]` low-usage badge in provider titles when remaining percentage is below the configured threshold.
+- Replaced ~280 lines of hand-rolled ANSI escape code rendering with Python's `rich` library (`Live`, `Panel`, `Table.grid`, custom `PercentageBar` renderable). This eliminates the persistent scrollback buffer growth bug that 6+ prior fix attempts using raw ANSI sequences could not fully resolve.
+- Added `rich>=15.0` as the first runtime dependency.
+- `--once` mode now prints directly via `Console.print` without entering alt-screen (no flash).
+- `--json` mode writes directly to `sys.stdout` with explicit flush (no Rich dependency in JSON path).
+- Live interactive mode uses `Live(screen=True, auto_refresh=False)` with manual refresh for precise countdown control.
+- Countdown loop uses deadline-based drift correction instead of accumulating `time.sleep(1)` calls.
+- Fixed pre-existing `refresh()` closure bug where the inner function referenced the wrong `snapshots` variable from outer scope instead of its `previous` parameter.
+- Removed all ANSI constants, old PALETTE dict, and ~30 hand-rolled rendering functions (`write_screen`, `enter_alt_screen`, `leave_alt_screen`, `countdown_sleep`, `_card`, `_merge_columns`, `_progress_bar`, etc.).
+- Rewrote test suite from ANSI string assertions to Rich Console capture pattern; test count increased from 29 to 42.
 - Fixed missing leading `/` in `aimonitor` alias in `~/.zshrc` that prevented the alias from resolving.
 - Reorganized `~/.zshrc` into labeled sections (PATH, Completion, AI/LLM Tools, Projects, System/Infra).
 - Updated write_screen tests to document the always-full-clear invariant.

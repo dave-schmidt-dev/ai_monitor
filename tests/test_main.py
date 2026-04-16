@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import argparse
-from io import StringIO
 import json
 import unittest
+from io import StringIO
 from unittest.mock import MagicMock, patch
 
 from rich.console import Console

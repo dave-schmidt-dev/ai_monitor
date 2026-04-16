@@ -6,11 +6,10 @@ import unittest
 
 from ai_monitor.parsing import (
     parse_claude_status,
-    parse_copilot_status,
     parse_codex_status,
+    parse_copilot_status,
     parse_gemini_status,
 )
-
 
 CODEX_SAMPLE = """
 Credits: 12.50

@@ -3,33 +3,33 @@
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import contextmanager
-from dataclasses import replace
-from datetime import datetime
 import json
 import os
-from pathlib import Path
 import select
 import subprocess
 import sys
 import termios
 import time
 import tty
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
+from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
+
+from rich.console import Console
+from rich.live import Live
 
 from .providers import (
     ClaudeProvider,
-    CopilotProvider,
     CodexProvider,
+    CopilotProvider,
     CursorProvider,
     GeminiProvider,
     ProviderSnapshot,
     VibeProvider,
     fetch_provider_snapshot,
 )
-from rich.console import Console
-from rich.live import Live
-
 from .ui import (
     THEME,
     build_dashboard,

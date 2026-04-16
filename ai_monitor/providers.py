@@ -2,28 +2,27 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import logging
-from pathlib import Path
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-
 from .parsing import (
     ClaudeStatus,
-    CopilotStatus,
     CodexStatus,
+    CopilotStatus,
     CursorStatus,
     GeminiStatus,
     VibeStatus,
     parse_claude_status,
-    parse_copilot_status,
     parse_codex_status,
+    parse_copilot_status,
     parse_gemini_status,
     strip_ansi,
 )

@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
 import errno
 import os
 import pty
@@ -12,6 +10,8 @@ import signal
 import subprocess
 import termios
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 
 from .parsing import strip_ansi
 

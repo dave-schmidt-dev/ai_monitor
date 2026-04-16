@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from io import StringIO
 import json
 import unittest
+from datetime import datetime
+from io import StringIO
 
 from rich.console import Console
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
 import json
 import re
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 
 from rich.console import Console, ConsoleOptions, Group, RenderableType, RenderResult
 from rich.panel import Panel
@@ -15,7 +15,6 @@ from rich.text import Text
 from rich.theme import Theme
 
 from .providers import ProviderSnapshot
-
 
 THEME = Theme(
     {

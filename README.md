@@ -92,47 +92,30 @@ This is intentionally a CLI/TUI scraping approach, not an official provider API 
 
 ## Output
 
+All provider cards use a unified 5-column row layout: `label | % | bar | reset | pace`.
+When a provider's usable capacity hits 0%, all rows switch to a depleted view showing
+`0%  until <reset_time>` with no bar or pace.
+
 Codex and Claude cards show:
 
-- `5h session`: remaining usage for the current 5-hour window
-- `5h resets`: next 5-hour reset time
-- `5h pace`: whether current usage is ahead of or behind the window pace
-- `1w session`: remaining usage for the current 1-week window
-- `1w resets`: next weekly reset time
-- `1w pace`: weekly pace indicator
+- `5h`: remaining usage for the current 5-hour window, reset time, pace indicator
+- `1w`: remaining usage for the current 1-week window, weekly reset time, pace indicator
 
-Gemini cards show:
+Gemini card shows:
 
-- `flash pool`: flash pool remaining usage
-- `flash reset`: flash pool reset countdown
-- `pro pool`: pro pool remaining usage
-- `pro reset`: pro pool reset countdown
-- `pace n/a`: shown intentionally because Gemini does not expose a full window start/end for a true pace calculation
+- `fl`: Flash pool remaining, reset countdown
+- `pr`: Pro pool remaining, reset countdown
 
-Copilot card shows:
+Copilot / Cursor / Vibe cards show:
 
-- `month rem`: remaining premium percentage, rendered with one decimal place
-- `month reset`: monthly reset target (first day of next month at 12:00 AM UTC)
-- `month pace`: pace vs expected month progress (`under pace`, `on pace`, or `over pace`)
-
-Cursor card shows:
-
-- `credit rem`: remaining usage credits
-- `resets`: billing cycle reset display string
-- `credit pace`: pace across the current billing cycle
-- `plan`: plan name (when available)
-
-Vibe card shows:
-
-- `month rem`: remaining monthly allowance (`100 - usage_percent`)
-- `month reset`: reset time from the API
-- `month pace`: pace across the current billing cycle
+- `mo`: monthly remaining percentage, billing-cycle reset, pace indicator
+- Cursor also shows `pl` (plan name) when available
 
 Reset displays are normalized before rendering:
 
-- Same-day resets render as `h:mm AM/PM`
-- Future resets render as `Mon DD h:mm AM/PM`
-- Relative vendor text like `Resets in 2h 14m` is converted into the same absolute local display
+- Same-day resets render as `HH:MM` (24h)
+- Future resets render as `Mon DD HH:MM`
+- Relative vendor text like `Resets in 2h 14m` is converted to the same absolute local display
 
 ## JSON Output
 
@@ -192,8 +175,19 @@ Example:
 - Gemini prefers a direct internal quota probe and only falls back to PTY `/stats` scraping if that path is unavailable.
 - If Gemini falls back to PTY probing and shows a **waiting for authentication** screen, `ai_monitor` now reports that directly. Run `gemini` once and complete sign-in, then rerun the monitor.
 
-## Validation
+## Development
 
 ```bash
-python3 -m unittest discover -s tests -v
+# Run tests
+pytest
+
+# Lint
+ruff check ai_monitor/ tests/
 ```
+
+Project docs:
+
+- **README.md** — setup, usage, architecture overview
+- **HISTORY.md** — change log for every session (features, bugs, regressions)
+- **tasks.md** — backlog and in-progress work
+- **pyproject.toml** — dependencies (`ruff`, `pytest`) and tool config

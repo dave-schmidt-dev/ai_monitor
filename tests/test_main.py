@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from ai_monitor.__main__ import main
+from ai_monitor.__main__ import AUTH_ACTIONS, _is_auth_error, main
 from ai_monitor.providers import ProviderSnapshot
 from ai_monitor.ui import THEME, build_dashboard
 
@@ -31,9 +31,7 @@ class MainOnceTests(unittest.TestCase):
         with (
             patch(
                 "ai_monitor.__main__.parse_args",
-                return_value=argparse.Namespace(
-                    json=False, once=True, debug=False, interval=120
-                ),
+                return_value=argparse.Namespace(json=False, once=True, debug=False, interval=120),
             ),
             patch("ai_monitor.__main__.initialize_providers", return_value=([], [])),
             patch("ai_monitor.__main__.collect_snapshots", return_value=snapshots),
@@ -60,9 +58,7 @@ class MainOnceTests(unittest.TestCase):
         with (
             patch(
                 "ai_monitor.__main__.parse_args",
-                return_value=argparse.Namespace(
-                    json=False, once=True, debug=False, interval=120
-                ),
+                return_value=argparse.Namespace(json=False, once=True, debug=False, interval=120),
             ),
             patch("ai_monitor.__main__.initialize_providers", return_value=([], [])),
             patch("ai_monitor.__main__.collect_snapshots", return_value=snapshots),
@@ -103,9 +99,7 @@ class MainJsonTests(unittest.TestCase):
         with (
             patch(
                 "ai_monitor.__main__.parse_args",
-                return_value=argparse.Namespace(
-                    json=True, once=False, debug=False, interval=120
-                ),
+                return_value=argparse.Namespace(json=True, once=False, debug=False, interval=120),
             ),
             patch("ai_monitor.__main__.initialize_providers", return_value=([], [])),
             patch("ai_monitor.__main__.collect_snapshots", return_value=snapshots),
@@ -143,9 +137,7 @@ class MainJsonTests(unittest.TestCase):
         with (
             patch(
                 "ai_monitor.__main__.parse_args",
-                return_value=argparse.Namespace(
-                    json=True, once=False, debug=False, interval=120
-                ),
+                return_value=argparse.Namespace(json=True, once=False, debug=False, interval=120),
             ),
             patch("ai_monitor.__main__.initialize_providers", return_value=([], [])),
             patch("ai_monitor.__main__.collect_snapshots", return_value=snapshots),
@@ -200,6 +192,53 @@ class DashboardNoANSILeakageTests(unittest.TestCase):
         self.assertIn("Claude", output)
         self.assertIn("68%", output)
         self.assertIn("rate limited", output)
+
+
+class IsAuthErrorTests(unittest.TestCase):
+    def test_auth_keyword_with_known_provider(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude",
+            ok=False,
+            source="api",
+            error="session expired — visit claude.ai to authenticate",
+        )
+        self.assertTrue(_is_auth_error(snap))
+
+    def test_token_expired_matches(self) -> None:
+        snap = ProviderSnapshot(
+            name="Codex", ok=False, source="api", error="Token expired, please re-login"
+        )
+        self.assertTrue(_is_auth_error(snap))
+
+    def test_case_insensitive(self) -> None:
+        snap = ProviderSnapshot(
+            name="Gemini", ok=False, source="api", error="AUTH FAILED: run gemini to fix"
+        )
+        self.assertTrue(_is_auth_error(snap))
+
+    def test_non_auth_error_returns_false(self) -> None:
+        snap = ProviderSnapshot(name="Claude", ok=False, source="api", error="connection timeout")
+        self.assertFalse(_is_auth_error(snap))
+
+    def test_ok_snapshot_returns_false(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude", ok=True, source="api", data={"session_percent_left": 50}
+        )
+        self.assertFalse(_is_auth_error(snap))
+
+    def test_unknown_provider_returns_false(self) -> None:
+        snap = ProviderSnapshot(
+            name="UnknownAI", ok=False, source="api", error="please authenticate"
+        )
+        self.assertFalse(_is_auth_error(snap))
+
+    def test_no_error_text_returns_false(self) -> None:
+        snap = ProviderSnapshot(name="Claude", ok=False, source="api", error=None)
+        self.assertFalse(_is_auth_error(snap))
+
+    def test_all_six_providers_in_auth_actions(self) -> None:
+        expected = {"Claude", "Codex", "Gemini", "Copilot", "Cursor", "Vibe"}
+        self.assertEqual(set(AUTH_ACTIONS.keys()), expected)
 
 
 if __name__ == "__main__":

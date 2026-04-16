@@ -21,11 +21,11 @@ from rich.console import Console
 from rich.live import Live
 
 from .providers import (
-    ClaudeProvider,
-    CodexProvider,
-    CopilotProvider,
+    ClaudeHttpProvider,
+    CodexHttpProvider,
+    CopilotHttpProvider,
     CursorProvider,
-    GeminiProvider,
+    GeminiHttpProvider,
     ProviderSnapshot,
     VibeProvider,
     fetch_provider_snapshot,
@@ -37,17 +37,43 @@ from .ui import (
     render_json,
 )
 
+AUTH_ACTIONS: dict[str, tuple[str, str]] = {
+    "Claude": ("cli", "claude login"),
+    "Codex": ("cli", "codex login"),
+    "Gemini": ("cli", "gemini"),
+    "Copilot": ("cli", "gh auth login"),
+    "Cursor": ("browser", "https://cursor.sh"),
+    "Vibe": ("browser", "https://console.mistral.ai"),
+}
+
+_AUTH_KEYWORDS = (
+    "auth",
+    "login",
+    "authenticate",
+    "credentials",
+    "re-authenticate",
+    "token expired",
+    "sign in",
+    "sign-in",
+)
+
+
+def _is_auth_error(snapshot: ProviderSnapshot) -> bool:
+    """Return True if the snapshot is an auth error with a known fix action."""
+    if snapshot.ok or not snapshot.error:
+        return False
+    if snapshot.name not in AUTH_ACTIONS:
+        return False
+    lower = snapshot.error.lower()
+    return any(kw in lower for kw in _AUTH_KEYWORDS)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Monitor Codex, Claude, Gemini, and Copilot usage in real time."
     )
-    parser.add_argument(
-        "--interval", type=int, default=120, help="Refresh interval in seconds."
-    )
-    parser.add_argument(
-        "--once", action="store_true", help="Fetch one snapshot and exit."
-    )
+    parser.add_argument("--interval", type=int, default=120, help="Refresh interval in seconds.")
+    parser.add_argument("--once", action="store_true", help="Fetch one snapshot and exit.")
     parser.add_argument(
         "--json", action="store_true", help="Print JSON instead of the live dashboard."
     )
@@ -83,7 +109,7 @@ def initialize_providers(
 
     if enabled is None or "Codex" in enabled:
         try:
-            codex = CodexProvider(cwd)
+            codex = CodexHttpProvider()
             providers.append(("Codex", codex))
             cleanup.append(codex)
         except Exception as exc:  # noqa: BLE001
@@ -91,7 +117,7 @@ def initialize_providers(
 
     if enabled is None or "Claude" in enabled:
         try:
-            claude = ClaudeProvider(cwd)
+            claude = ClaudeHttpProvider()
             providers.append(("Claude", claude))
             cleanup.append(claude)
         except Exception as exc:  # noqa: BLE001
@@ -99,7 +125,7 @@ def initialize_providers(
 
     if enabled is None or "Gemini" in enabled:
         try:
-            gemini = GeminiProvider(cwd)
+            gemini = GeminiHttpProvider(cwd)
             providers.append(("Gemini", gemini))
             cleanup.append(gemini)
         except Exception as exc:  # noqa: BLE001
@@ -107,7 +133,7 @@ def initialize_providers(
 
     if enabled is None or "Copilot" in enabled:
         try:
-            copilot = CopilotProvider(cwd)
+            copilot = CopilotHttpProvider()
             providers.append(("Copilot", copilot))
             cleanup.append(copilot)
         except Exception as exc:  # noqa: BLE001
@@ -132,17 +158,13 @@ def initialize_providers(
     return providers, cleanup
 
 
-def collect_snapshots(
-    providers: list[tuple[str, object]], debug: bool
-) -> list[ProviderSnapshot]:
+def collect_snapshots(providers: list[tuple[str, object]], debug: bool) -> list[ProviderSnapshot]:
     snapshots: list[ProviderSnapshot] = []
     workers: list[tuple[str, object]] = [
         (name, provider) for name, provider in providers if hasattr(provider, "fetch")
     ]
     static_errors = [
-        (name, provider)
-        for name, provider in providers
-        if not hasattr(provider, "fetch")
+        (name, provider) for name, provider in providers if not hasattr(provider, "fetch")
     ]
 
     executor = ThreadPoolExecutor(max_workers=max(1, len(workers)))
@@ -157,9 +179,7 @@ def collect_snapshots(
         executor.shutdown(wait=False, cancel_futures=True)
 
     for name, error in static_errors:
-        snapshots.append(
-            ProviderSnapshot(name=name, ok=False, source="cli", error=str(error))
-        )
+        snapshots.append(ProviderSnapshot(name=name, ok=False, source="api", error=str(error)))
 
     snapshots.sort(key=lambda item: item.name)
     return snapshots
@@ -178,6 +198,10 @@ def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
         "empty copilot output",
         "missing current session",
         "data not available yet",
+        "http 429",
+        "http 502",
+        "http 503",
+        "token expired",
     )
     return any(marker in message for marker in transient_markers)
 
@@ -227,9 +251,7 @@ def _extract_percent_left(snap: ProviderSnapshot) -> float | None:
     return None
 
 
-def _notify_threshold(
-    provider_name: str, percent_left: float, threshold: float
-) -> None:
+def _notify_threshold(provider_name: str, percent_left: float, threshold: float) -> None:
     """Send a macOS notification when a provider is below threshold."""
     try:
         subprocess.run(
@@ -286,19 +308,13 @@ def main() -> int:
     enabled_providers: set[str] | None = None
     provider_override = getattr(args, "providers", None)
     if provider_override:
-        enabled_providers = {
-            name.strip() for name in provider_override.split(",") if name.strip()
-        }
+        enabled_providers = {name.strip() for name in provider_override.split(",") if name.strip()}
     elif isinstance(config.get("providers"), list):
         configured = {
-            str(name).strip()
-            for name in config.get("providers", [])
-            if str(name).strip()
+            str(name).strip() for name in config.get("providers", []) if str(name).strip()
         }
         enabled_providers = configured or None
-    if config.get("interval") and not any(
-        arg.startswith("--interval") for arg in sys.argv[1:]
-    ):
+    if config.get("interval") and not any(arg.startswith("--interval") for arg in sys.argv[1:]):
         try:
             args.interval = int(config["interval"])
         except (TypeError, ValueError):
@@ -313,16 +329,12 @@ def main() -> int:
 
     def refresh(previous: list[ProviderSnapshot]) -> list[ProviderSnapshot]:
         fresh: list[ProviderSnapshot] = []
-        executor = ThreadPoolExecutor(max_workers=len(cleanup) or 1)
+        workers = [(name, p) for name, p in providers if hasattr(p, "fetch")]
+        executor = ThreadPoolExecutor(max_workers=len(workers) or 1)
         try:
             future_map = {
-                executor.submit(
-                    fetch_provider_snapshot,
-                    provider.__class__.__name__.replace("Provider", ""),
-                    provider,
-                    args.debug,
-                ): provider
-                for provider in cleanup
+                executor.submit(fetch_provider_snapshot, name, provider, args.debug): name
+                for name, provider in workers
             }
             for future in future_map:
                 fresh.append(future.result())
@@ -350,9 +362,7 @@ def main() -> int:
             snapshots = collect_snapshots(providers, args.debug)
             _check_thresholds(snapshots, threshold, notified_providers)
             updated_at = datetime.now()
-            console.print(
-                build_dashboard(snapshots, updated_at, 0, threshold=threshold)
-            )
+            console.print(build_dashboard(snapshots, updated_at, 0, threshold=threshold))
             return 0
 
         # Live interactive mode
@@ -404,9 +414,7 @@ def main() -> int:
                         sleep_until = deadline - remaining + 1
                         wait_time = max(0.0, sleep_until - time.monotonic())
                         if sys.stdin.isatty():
-                            readable, _, _ = select.select(
-                                [sys.stdin], [], [], wait_time
-                            )
+                            readable, _, _ = select.select([sys.stdin], [], [], wait_time)
                             if readable:
                                 key = sys.stdin.read(1)
                                 if key in ("q", "Q"):
@@ -442,9 +450,7 @@ def main() -> int:
                             )
                             live.refresh()
                             if sys.stdin.isatty():
-                                readable, _, _ = select.select(
-                                    [sys.stdin], [], [], 0.12
-                                )
+                                readable, _, _ = select.select([sys.stdin], [], [], 0.12)
                                 if readable:
                                     key = sys.stdin.read(1)
                                     if key in ("q", "Q"):

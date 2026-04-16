@@ -183,9 +183,7 @@ def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | Non
     lower = normalized.lower()
     target: datetime | None = None
     target_year = now.year
-    fragments = (
-        normalized.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
-    )
+    fragments = normalized.split("(", 1)[0].replace("resets", "").replace("Resets", "").strip()
     fragments = fragments.replace(",", "")
     fragments = re.sub(r"(?i)(\d)(am|pm)\b", r"\1 \2", fragments)
     fragments = re.sub(r"\s+", " ", fragments).strip()
@@ -249,9 +247,7 @@ def _parse_reset_target(reset_text: str | None, now: datetime) -> datetime | Non
                 parsed = datetime.strptime(fragments, fmt)
             except ValueError:
                 continue
-            target = now.replace(
-                hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0
-            )
+            target = now.replace(hour=parsed.hour, minute=parsed.minute, second=0, microsecond=0)
             if target < now:
                 target = target + timedelta(days=1)
             break
@@ -349,7 +345,7 @@ def _provider_is_empty(snapshot: ProviderSnapshot) -> bool:
     if not snapshot.ok or not snapshot.data:
         return False
     data = snapshot.data
-    name = snapshot.name
+    name = snapshot.name.removesuffix(" [HTTP]")
     if name == "Codex":
         return _is_empty_window(data.get("five_hour_percent_left")) or _is_empty_window(
             data.get("weekly_percent_left")
@@ -364,9 +360,7 @@ def _provider_is_empty(snapshot: ProviderSnapshot) -> bool:
         return _is_empty_window(data.get("credit_percent_left"))
     if name == "Vibe":
         usage = data.get("usage_percent")
-        pct_left = (
-            max(0.0, 100.0 - float(usage)) if isinstance(usage, (int, float)) else None
-        )
+        pct_left = max(0.0, 100.0 - float(usage)) if isinstance(usage, (int, float)) else None
         return _is_empty_window(pct_left)
     if name == "Gemini":
         return _is_empty_window(data.get("flash_percent_left")) and _is_empty_window(
@@ -376,9 +370,7 @@ def _provider_is_empty(snapshot: ProviderSnapshot) -> bool:
 
 
 def _copilot_monthly_reset_target(now: datetime) -> datetime:
-    utc_now = (
-        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
-    )
+    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
     year = utc_now.year + (1 if utc_now.month == 12 else 0)
     month = 1 if utc_now.month == 12 else utc_now.month + 1
     return datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
@@ -414,9 +406,7 @@ def _billing_cycle_pace_label(
     return f"over -{diff_points}pt"
 
 
-def _provider_display_fields(
-    snapshot: ProviderSnapshot, now: datetime
-) -> dict[str, str]:
+def _provider_display_fields(snapshot: ProviderSnapshot, now: datetime) -> dict[str, str]:
     if not snapshot.data:
         return {}
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
@@ -472,9 +462,7 @@ class PercentageBar:
         self.percent = percent
         self.style = style
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ) -> RenderResult:
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
         width = options.max_width
         if self.percent is None:
             yield Text("·" * width, style="shadow")
@@ -497,10 +485,15 @@ class PercentageBar:
 
 
 def build_provider_panel(
-    snapshot: ProviderSnapshot, now: datetime, *, threshold: float = 20.0
+    snapshot: ProviderSnapshot,
+    now: datetime,
+    *,
+    threshold: float = 20.0,
+    auth_fix_key: str | None = None,
 ) -> Panel:
     """Build a Rich Panel for a single provider snapshot."""
-    accent = ACCENT_STYLES.get(snapshot.name, "text.cyan")
+    base_name = snapshot.name.removesuffix(" [HTTP]")
+    accent = ACCENT_STYLES.get(base_name, "text.cyan")
     below_threshold = False
     if snapshot.ok and snapshot.data:
         for key in (
@@ -522,8 +515,15 @@ def build_provider_panel(
         title_text += " [bold text.red][!][/]"
 
     if not snapshot.ok:
-        error_msg = _truncate(snapshot.error or "unknown error", 60)
-        body = Text.from_markup(f"[text.red]error:[/] [text.muted]{error_msg}[/]")
+        if auth_fix_key is not None:
+            body = Text.from_markup(
+                f"[text.red]auth error[/] [text.muted]— press [/]"
+                f"[text.cyan]\\[{auth_fix_key}][/]"
+                f"[text.muted] to fix[/]"
+            )
+        else:
+            error_msg = _truncate(snapshot.error or "unknown error", 60)
+            body = Text.from_markup(f"[text.red]error:[/] [text.muted]{error_msg}[/]")
         return Panel(
             body,
             title=title_text,
@@ -533,12 +533,10 @@ def build_provider_panel(
 
     assert snapshot.data is not None
     cached_badge = (
-        _cached_badge_text(snapshot, now)
-        if "cached" in snapshot.source.lower()
-        else None
+        _cached_badge_text(snapshot, now) if "cached" in snapshot.source.lower() else None
     )
 
-    spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
+    spec = PROVIDER_RENDER_SPECS.get(base_name)
 
     # All panels use the same 5-column layout so bars align across the grid:
     # label | % | bar | reset | pace
@@ -551,11 +549,11 @@ def build_provider_panel(
 
     if _provider_is_empty(snapshot):
         _add_empty_view(body, snapshot, now)
-    elif snapshot.name == "Copilot":
+    elif base_name == "Copilot":
         _add_copilot_rows(body, snapshot.data, now)
-    elif snapshot.name == "Cursor":
+    elif base_name == "Cursor":
         _add_cursor_rows(body, snapshot.data, now)
-    elif snapshot.name == "Vibe":
+    elif base_name == "Vibe":
         _add_vibe_rows(body, snapshot.data, now)
     elif spec:
         _add_usage_rows(body, snapshot.data, now, spec.windows)
@@ -615,7 +613,7 @@ def _add_empty_view(table: Table, snapshot: ProviderSnapshot, now: datetime) -> 
     """
     data = snapshot.data
     assert data is not None
-    name = snapshot.name
+    name = snapshot.name.removesuffix(" [HTTP]")
     _e = Text("")
 
     def _row(label: str, reset_str: str | None) -> None:
@@ -677,20 +675,14 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
         data.get("premium_reset")
         or f"Resets {_copilot_monthly_reset_target(now).astimezone().strftime('%b %d at %H:%M')}"
     )
-    utc_now = (
-        now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
-    )
+    utc_now = now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
     start = utc_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     end = _copilot_monthly_reset_target(utc_now)
-    pace_text = _billing_cycle_pace_label(
-        percent_left, start.isoformat(), end.isoformat(), utc_now
-    )
+    pace_text = _billing_cycle_pace_label(percent_left, start.isoformat(), end.isoformat(), utc_now)
 
     style = _style_for_percent(percent_left)
     value_text = _format_percent_value(percent_left)
-    reset_display = _format_reset_display(
-        None if reset_value is None else str(reset_value), now
-    )
+    reset_display = _format_reset_display(None if reset_value is None else str(reset_value), now)
     table.add_row(
         Text("mo", style="text.muted"),
         Text(value_text, style=style),
@@ -713,9 +705,7 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
 
     style = _style_for_percent(percent_left)
     value_text = _format_percent_value(percent_left)
-    reset_display = _format_reset_display(
-        None if reset_value is None else str(reset_value), now
-    )
+    reset_display = _format_reset_display(None if reset_value is None else str(reset_value), now)
     start_iso = data.get("billing_cycle_start")
     end_iso = data.get("billing_cycle_end_iso")
     pace_text = _billing_cycle_pace_label(
@@ -753,9 +743,7 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
 
     style = _style_for_percent(percent_left)
     value_text = _format_percent_value(percent_left)
-    reset_display = _format_reset_display(
-        None if reset_value is None else str(reset_value), now
-    )
+    reset_display = _format_reset_display(None if reset_value is None else str(reset_value), now)
     start_iso = data.get("start_date")
     end_iso = data.get("end_date")
     pace_text = _billing_cycle_pace_label(
@@ -776,12 +764,8 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
 def _add_generic_rows(table: Table, data: dict[str, object], source: str) -> None:
     """Add generic key-value rows for unknown providers."""
     _e = Text("")
-    table.add_row(
-        Text("status", style="text.muted"), Text("ok", style="text.ink"), _e, _e, _e
-    )
-    table.add_row(
-        Text("source", style="text.muted"), Text(source, style="text.ink"), _e, _e, _e
-    )
+    table.add_row(Text("status", style="text.muted"), Text("ok", style="text.ink"), _e, _e, _e)
+    table.add_row(Text("source", style="text.muted"), Text(source, style="text.ink"), _e, _e, _e)
     count = 0
     for key, value in sorted(data.items()):
         if key == "raw_text":
@@ -817,9 +801,7 @@ def build_dashboard(
     now = updated_at
 
     # Header
-    refresh_value = (
-        f"{update_elapsed:0.1f}s" if updating else f"{next_refresh_seconds}s"
-    )
+    refresh_value = f"{update_elapsed:0.1f}s" if updating else f"{next_refresh_seconds}s"
     header = Text.assemble(
         ("AI Usage Monitor", "bold text.cyan"),
         ("  |  ", "text.muted"),
@@ -862,9 +844,7 @@ def build_dashboard(
     return Group(header, Text(""), body, Text(""), footer)
 
 
-def build_loading_screen(
-    message: str, updated_at: datetime, elapsed_seconds: float = 0.0
-) -> Group:
+def build_loading_screen(message: str, updated_at: datetime, elapsed_seconds: float = 0.0) -> Group:
     """Build the loading/startup screen as a Rich Group."""
     header = Text.assemble(
         ("AI Usage Monitor", "bold text.cyan"),

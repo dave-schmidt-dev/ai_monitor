@@ -106,9 +106,7 @@ class ProviderPanelTests(unittest.TestCase):
         }
 
     def test_codex_panel_contains_labels_and_values(self) -> None:
-        snap = ProviderSnapshot(
-            name="Codex", ok=True, source="cli", data=self.codex_data
-        )
+        snap = ProviderSnapshot(name="Codex", ok=True, source="cli", data=self.codex_data)
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Codex", output)
         self.assertIn("5h", output)
@@ -117,9 +115,7 @@ class ProviderPanelTests(unittest.TestCase):
         self.assertIn("91%", output)
 
     def test_claude_panel_contains_labels(self) -> None:
-        snap = ProviderSnapshot(
-            name="Claude", ok=True, source="cli", data=self.claude_data
-        )
+        snap = ProviderSnapshot(name="Claude", ok=True, source="cli", data=self.claude_data)
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Claude", output)
         self.assertIn("5h", output)
@@ -127,27 +123,21 @@ class ProviderPanelTests(unittest.TestCase):
         self.assertIn("73%", output)
 
     def test_gemini_panel_shows_flash_and_pro(self) -> None:
-        snap = ProviderSnapshot(
-            name="Gemini", ok=True, source="cli", data=self.gemini_data
-        )
+        snap = ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data)
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Gemini", output)
         self.assertIn("fl", output)
         self.assertIn("pr", output)
 
     def test_copilot_panel_shows_monthly_metrics(self) -> None:
-        snap = ProviderSnapshot(
-            name="Copilot", ok=True, source="cli", data=self.copilot_data
-        )
+        snap = ProviderSnapshot(name="Copilot", ok=True, source="cli", data=self.copilot_data)
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Copilot", output)
         self.assertIn("mo", output)
         self.assertIn("98%", output)
 
     def test_error_panel_shows_error_message(self) -> None:
-        snap = ProviderSnapshot(
-            name="Claude", ok=False, source="cli", error="connection timeout"
-        )
+        snap = ProviderSnapshot(name="Claude", ok=False, source="cli", error="connection timeout")
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Claude", output)
         self.assertIn("error", output)
@@ -546,9 +536,7 @@ class NoANSIRegressionTests(unittest.TestCase):
 
     def test_error_panel_no_ansi(self) -> None:
         now = datetime(2026, 3, 14, 8, 22, 30)
-        snap = ProviderSnapshot(
-            name="Claude", ok=False, source="cli", error="rate limited"
-        )
+        snap = ProviderSnapshot(name="Claude", ok=False, source="cli", error="rate limited")
         output = _capture(build_provider_panel(snap, now), width=44)
         self._assert_no_ansi(output)
 
@@ -630,6 +618,45 @@ class CountdownDisplayTests(unittest.TestCase):
         dashboard = build_dashboard([snap], now, 0, updating=True, update_elapsed=3.7)
         output = _capture(dashboard, width=80)
         self.assertIn("↻ 3.7s", output)
+
+
+class AuthFixPanelTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now = datetime(2026, 3, 14, 8, 22, 30)
+
+    def test_auth_error_shows_cta_with_key(self) -> None:
+        snap = ProviderSnapshot(
+            name="Gemini", ok=False, source="api", error="auth failed: run gemini"
+        )
+        panel = build_provider_panel(snap, self.now, auth_fix_key="1")
+        output = _capture(panel, width=60)
+        self.assertIn("auth error", output)
+        self.assertIn("[1]", output)
+        self.assertIn("to fix", output)
+        # Raw error text should NOT appear
+        self.assertNotIn("run gemini", output)
+
+    def test_non_auth_error_shows_raw_error(self) -> None:
+        snap = ProviderSnapshot(name="Claude", ok=False, source="api", error="connection timeout")
+        panel = build_provider_panel(snap, self.now, auth_fix_key=None)
+        output = _capture(panel, width=60)
+        self.assertIn("error:", output)
+        self.assertIn("connection timeout", output)
+        self.assertNotIn("to fix", output)
+
+    def test_auth_error_keeps_red_border(self) -> None:
+        snap = ProviderSnapshot(name="Claude", ok=False, source="api", error="authenticate failed")
+        panel = build_provider_panel(snap, self.now, auth_fix_key="2")
+        # Panel border_style is set to "text.red" — verify by checking the Panel object
+        self.assertEqual(panel.border_style, "text.red")
+
+    def test_auth_fix_key_none_on_error_shows_normal_error(self) -> None:
+        """When auth_fix_key is not passed, error panel is unchanged from current behavior."""
+        snap = ProviderSnapshot(name="Codex", ok=False, source="api", error="HTTP 500 server error")
+        panel = build_provider_panel(snap, self.now)
+        output = _capture(panel, width=60)
+        self.assertIn("error:", output)
+        self.assertIn("HTTP 500 server error", output)
 
 
 if __name__ == "__main__":

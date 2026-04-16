@@ -813,9 +813,13 @@ def build_dashboard(
     else:
         body = Text("No providers configured.", style="text.muted")
 
-    footer = Text(
-        "q quit  r refresh  Ctrl-C exit  --json for machine output  --debug for raw captures",
-        style="dim text.muted",
+    footer = Text.assemble(
+        ("[q]", "cyan"),
+        " quit  ",
+        ("[r]", "cyan"),
+        " refresh  ",
+        ("[Ctrl-C]", "cyan"),
+        " exit  ·  --json  --debug",
     )
 
     return Group(header, subtitle, Text(""), body, Text(""), footer)

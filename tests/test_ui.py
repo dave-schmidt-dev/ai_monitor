@@ -233,7 +233,7 @@ class DashboardTests(unittest.TestCase):
         output = _capture(dashboard, width=80)
         self.assertIn("AI Usage Monitor", output)
         self.assertIn("refresh 30s", output)
-        self.assertIn("q quit", output)
+        self.assertIn("[q]", output)
 
     def test_dashboard_updating_badge(self) -> None:
         dashboard = build_dashboard(

@@ -1,5 +1,9 @@
 # History
 
+## 2026-04-16
+
+- Fixed keyboard shortcut hints in dashboard footer: replaced invisible `dim text.muted` styling with `Text.assemble` using cyan color on key labels (`[q]`, `[r]`, `[Ctrl-C]`). Color-only styles are correctly stripped by `no_color=True` rendering so ANSI regression tests continue to pass.
+
 ## 2026-04-15
 
 - Extracted a shared Safari `Cookies.binarycookies` parser and reused it for both Cursor and Vibe auth cookie flows.

@@ -1,4 +1,7 @@
-#!/usr/bin/env python3
+#!/bin/sh
+""":" # Shell/Python polyglot — finds the project venv automatically
+exec "$(dirname "$0")/.venv/bin/python3" "$0" "$@"
+"""
 """Convenience wrapper for launching the monitor from the repo root."""
 
 from ai_monitor.__main__ import main

@@ -111,7 +111,6 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Codex", output)
-        self.assertIn("Codex usage", output)
         self.assertIn("5h session", output)
         self.assertIn("1w session", output)
         self.assertIn("5h resets", output)
@@ -125,7 +124,6 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Claude", output)
-        self.assertIn("Claude usage", output)
         self.assertIn("5h pace", output)
         self.assertIn("1w pace", output)
 
@@ -165,7 +163,7 @@ class ProviderPanelTests(unittest.TestCase):
             data={
                 "credit_percent_left": 82.5,
                 "plan_name": "pro",
-                "billing_cycle_end": "Resets May 01 12:00 AM UTC",
+                "billing_cycle_end": "Resets Apr 30 at 8:00 PM",
             },
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
@@ -181,7 +179,7 @@ class ProviderPanelTests(unittest.TestCase):
             source="api",
             data={
                 "usage_percent": 0.17,
-                "reset_at": "Resets May 01 12:00 AM UTC",
+                "reset_at": "Resets Apr 30 at 8:00 PM",
                 "payg_enabled": False,
             },
         )
@@ -232,7 +230,7 @@ class DashboardTests(unittest.TestCase):
         dashboard = build_dashboard([self.codex_snap], self.now, 30)
         output = _capture(dashboard, width=80)
         self.assertIn("AI Usage Monitor", output)
-        self.assertIn("refresh 30s", output)
+        self.assertIn("Refreshing in 30s", output)
         self.assertIn("[q]", output)
 
     def test_dashboard_updating_badge(self) -> None:
@@ -240,7 +238,7 @@ class DashboardTests(unittest.TestCase):
             [self.codex_snap], self.now, 0, updating=True, update_elapsed=1.4
         )
         output = _capture(dashboard, width=80)
-        self.assertIn("updating", output)
+        self.assertIn("Refreshing", output)
 
     def test_two_column_grid_at_wide_width(self) -> None:
         dashboard = build_dashboard([self.codex_snap, self.claude_snap], self.now, 30)
@@ -266,7 +264,7 @@ class LoadingScreenTests(unittest.TestCase):
         screen = build_loading_screen("Fetching data...", now, 2.3)
         output = _capture(screen, width=80)
         self.assertIn("Warming Up", output)
-        self.assertIn("startup 2.3s", output)
+        self.assertIn("Starting up 2.3s", output)
         self.assertIn("Fetching data...", output)
 
 
@@ -474,7 +472,7 @@ class CountdownDisplayTests(unittest.TestCase):
             with self.subTest(seconds=seconds):
                 dashboard = build_dashboard([snap], now, seconds)
                 output = _capture(dashboard, width=80)
-                self.assertIn(f"refresh {seconds:02d}s", output)
+                self.assertIn(f"Refreshing in {seconds}s", output)
 
     def test_updating_shows_elapsed(self) -> None:
         now = datetime(2026, 3, 14, 8, 22, 30)
@@ -483,7 +481,7 @@ class CountdownDisplayTests(unittest.TestCase):
         )
         dashboard = build_dashboard([snap], now, 0, updating=True, update_elapsed=3.7)
         output = _capture(dashboard, width=80)
-        self.assertIn("updating 3.7s", output)
+        self.assertIn("Refreshing 3.7s", output)
 
 
 if __name__ == "__main__":

@@ -3,6 +3,11 @@
 ## 2026-04-16
 
 - Fixed keyboard shortcut hints in dashboard footer: replaced invisible `dim text.muted` styling with `Text.assemble` using cyan color on key labels (`[q]`, `[r]`, `[Ctrl-C]`). Color-only styles are correctly stripped by `no_color=True` rendering so ANSI regression tests continue to pass.
+- Tightened dashboard header: collapsed into a single line (`AI Usage Monitor | Last Updated: <timestamp> | Refreshing in <N>s`), removed redundant subtitle line, timestamp rendered in yellow for contrast, refresh state uses "Refreshing in Xs" / "Refreshing Xs" language.
+- Removed "live" badge from provider panel subtitles — present data implies live; only show "cached Xm" when data is actually stale.
+- Removed redundant `<Provider> usage` subtitle text from all provider panels — provider name in the panel title is sufficient.
+- Cursor and Vibe panels are now always sorted last in the grid so their compact (3-row) size pairs them together rather than being mixed with taller providers.
+- Normalized reset times for Copilot, Cursor, and Vibe to system local time (was UTC). All three now use `target.astimezone().strftime('%b %d at %I:%M %p')` so the display is consistent with Claude, Codex, and Gemini. The `at` notation also lets `_parse_reset_target` parse the string, enabling `_format_reset_display` to compress same-day times to clock-only format.
 
 ## 2026-04-15
 

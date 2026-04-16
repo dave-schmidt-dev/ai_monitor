@@ -638,7 +638,7 @@ class CopilotProvider:
         year = now.year + (1 if now.month == 12 else 0)
         month = 1 if now.month == 12 else now.month + 1
         reset = datetime(year, month, 1, 0, 0, tzinfo=timezone.utc)
-        return f"Resets {reset.strftime('%b %d %I:%M %p UTC')}"
+        return f"Resets {reset.astimezone().strftime('%b %d at %I:%M %p')}"
 
 
 def _read_safari_cookies(host_filter: str) -> dict[str, str]:
@@ -980,7 +980,7 @@ class VibeProvider:
         if reset_at:
             try:
                 target = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-                reset_at = f"Resets {target.strftime('%b %d %I:%M %p UTC')}"
+                reset_at = f"Resets {target.astimezone().strftime('%b %d at %I:%M %p')}"
             except ValueError:
                 pass
 
@@ -1197,7 +1197,9 @@ class CursorProvider:
             try:
                 ms = int(raw_end)
                 target = datetime.fromtimestamp(ms / 1000, tz=timezone.utc)
-                billing_cycle_end = f"Resets {target.strftime('%b %d %I:%M %p UTC')}"
+                billing_cycle_end = (
+                    f"Resets {target.astimezone().strftime('%b %d at %I:%M %p')}"
+                )
                 billing_cycle_end_iso = target.date().isoformat()
             except (TypeError, ValueError):
                 pass

@@ -500,21 +500,13 @@ def build_provider_panel(
         )
 
     assert snapshot.data is not None
-    badge_text = (
+    cached_badge = (
         _cached_badge_text(snapshot, now)
         if "cached" in snapshot.source.lower()
-        else "live"
+        else None
     )
 
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
-    custom_subtitles = {
-        "Copilot": "Copilot usage",
-        "Cursor": "Cursor usage",
-        "Vibe": "Vibe usage",
-    }
-    subtitle_text = custom_subtitles.get(
-        snapshot.name, spec.subtitle if spec else "usage"
-    )
 
     body = Table.grid(padding=(0, 1))
     body.add_column(min_width=9)
@@ -532,14 +524,16 @@ def build_provider_panel(
     else:
         _add_generic_rows(body, snapshot.data, snapshot.source)
 
-    return Panel(
-        body,
-        title=title_text,
-        subtitle=f"[text.muted]{subtitle_text}[/]  [{accent}]{badge_text}[/]",
-        border_style="border",
-        subtitle_align="left",
-        padding=(0, 1),
-    )
+    panel_kwargs: dict[str, object] = {
+        "title": title_text,
+        "border_style": "border",
+        "subtitle_align": "left",
+        "padding": (0, 1),
+    }
+    if cached_badge:
+        panel_kwargs["subtitle"] = f"[{accent}]{cached_badge}[/]"
+
+    return Panel(body, **panel_kwargs)
 
 
 def _add_usage_rows(
@@ -589,7 +583,7 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
     percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
     reset_value = (
         data.get("premium_reset")
-        or f"Resets {_copilot_monthly_reset_target(now).strftime('%b %d %I:%M %p UTC')}"
+        or f"Resets {_copilot_monthly_reset_target(now).astimezone().strftime('%b %d at %I:%M %p')}"
     )
     utc_now = (
         now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
@@ -779,23 +773,24 @@ def build_dashboard(
 
     # Header
     if updating:
-        refresh_text = f"[text.cyan]updating {update_elapsed:0.1f}s[/]"
+        refresh_label, refresh_value = "Refreshing ", f"{update_elapsed:0.1f}s"
     else:
-        refresh_text = f"[text.cyan]refresh {next_refresh_seconds:02d}s[/]"
-    header = Text.from_markup(
-        f"[bold text.cyan]AI Usage Monitor[/]  "
-        f"[text.ink]updated {updated_at.strftime('%a %b %d %I:%M:%S %p')}[/]  "
-        f"{refresh_text}"
-    )
-    subtitle = Text(
-        "Live usage monitor for Claude, Codex, Copilot, Cursor, Gemini, and Vibe",
-        style="dim text.muted",
+        refresh_label, refresh_value = "Refreshing in ", f"{next_refresh_seconds}s"
+    header = Text.assemble(
+        ("AI Usage Monitor", "bold text.cyan"),
+        ("  |  ", "text.muted"),
+        ("Last Updated: ", "text.muted"),
+        (updated_at.strftime("%a %b %d %I:%M:%S %p"), "text.yellow"),
+        ("  |  ", "text.muted"),
+        (refresh_label, "text.muted"),
+        (refresh_value, "text.cyan"),
     )
 
-    # Build panels
-    panels = [
-        build_provider_panel(snap, now, threshold=threshold) for snap in snapshots
-    ]
+    # Build panels — Cursor and Vibe are compact (3 rows); sort them last so they
+    # always share a row rather than being paired with a taller provider.
+    _COMPACT = {"Cursor", "Vibe"}
+    ordered = sorted(snapshots, key=lambda s: s.name in _COMPACT)
+    panels = [build_provider_panel(snap, now, threshold=threshold) for snap in ordered]
 
     # Layout: 2-column grid if multiple panels
     if len(panels) > 1:
@@ -822,21 +817,21 @@ def build_dashboard(
         " exit  ·  --json  --debug",
     )
 
-    return Group(header, subtitle, Text(""), body, Text(""), footer)
+    return Group(header, Text(""), body, Text(""), footer)
 
 
 def build_loading_screen(
     message: str, updated_at: datetime, elapsed_seconds: float = 0.0
 ) -> Group:
     """Build the loading/startup screen as a Rich Group."""
-    header = Text.from_markup(
-        f"[bold text.cyan]AI Usage Monitor[/]  "
-        f"[text.ink]updated {updated_at.strftime('%a %b %d %I:%M:%S %p')}[/]  "
-        f"[text.cyan]startup {elapsed_seconds:0.1f}s[/]"
-    )
-    subtitle = Text(
-        "Live usage monitor for Claude, Codex, Copilot, Cursor, Gemini, and Vibe",
-        style="dim text.muted",
+    header = Text.assemble(
+        ("AI Usage Monitor", "bold text.cyan"),
+        ("  |  ", "text.muted"),
+        ("Last Updated: ", "text.muted"),
+        (updated_at.strftime("%a %b %d %I:%M:%S %p"), "text.yellow"),
+        ("  |  ", "text.muted"),
+        ("Starting up ", "text.muted"),
+        (f"{elapsed_seconds:0.1f}s", "text.cyan"),
     )
 
     body = Table.grid(padding=(0, 1))
@@ -855,8 +850,8 @@ def build_loading_screen(
         padding=(0, 1),
     )
 
-    footer = Text("Ctrl-C to exit.", style="dim text.muted")
-    return Group(header, subtitle, Text(""), panel, Text(""), footer)
+    footer = Text.assemble(("[Ctrl-C]", "cyan"), " exit")
+    return Group(header, Text(""), panel, Text(""), footer)
 
 
 # ---------------------------------------------------------------------------

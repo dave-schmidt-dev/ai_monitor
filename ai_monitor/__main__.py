@@ -341,13 +341,23 @@ _LOG_PATH = Path("/tmp/ai_monitor.log")
 
 
 def _setup_logging(debug: bool) -> None:
-    """Configure file logging. Always logs WARNING+; --debug adds DEBUG."""
-    logging.basicConfig(
-        filename=str(_LOG_PATH),
-        level=logging.DEBUG if debug else logging.WARNING,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S",
+    """Configure file logging with rotation. Always logs WARNING+; --debug adds DEBUG."""
+    from logging.handlers import RotatingFileHandler
+
+    handler = RotatingFileHandler(
+        _LOG_PATH,
+        maxBytes=1_000_000,  # 1 MB
+        backupCount=2,  # keep .log, .log.1, .log.2
     )
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)s %(name)s: %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
+        )
+    )
+    root = logging.getLogger()
+    root.setLevel(logging.DEBUG if debug else logging.WARNING)
+    root.addHandler(handler)
 
 
 def main() -> int:

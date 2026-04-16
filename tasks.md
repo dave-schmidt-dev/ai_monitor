@@ -25,6 +25,7 @@
 - [x] Add direct HTTP API probes for all 4 PTY providers (Copilot, Codex, Claude, Gemini). Use `--compare` to validate parity before switching defaults.
 - [x] Make HTTP providers the default; removed all PTY infrastructure (`pty_session.py`, 4 PTY provider classes, `parsing.py` parse functions, `--compare` flag). Net ~1,500 lines removed.
 - [x] Auth fix actions: numbered key hints for auth-errored providers, launching Terminal or browser to fix.
+- [x] Fix Gemini token refresh (missing client_id/secret), stale creds reload, launch debounce, file logging.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.

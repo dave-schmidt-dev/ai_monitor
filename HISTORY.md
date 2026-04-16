@@ -5,7 +5,13 @@
 - **Auth fix actions**: When a provider reports an auth error, the dashboard card now shows `auth error — press [N] to fix` instead of the raw error text, and the footer gains `[N] fix <Name>` entries. Pressing the number key opens a new Terminal.app window (CLI auth: `claude login`, `codex login`, `gemini`, `gh auth login`) or the default browser (web auth: Cursor, Vibe). Non-auth errors are unchanged.
 - Added `AUTH_ACTIONS` table, `_is_auth_error()`, `_build_fix_actions()`, `_launch_fix()` to `__main__.py`.
 - Added `auth_fix_key` parameter to `build_provider_panel()` and `fix_actions` parameter to `build_dashboard()` in `ui.py`.
-- 25 new tests covering auth detection, fix action mapping, launch behavior, panel CTA rendering, and footer hints. 95 tests pass.
+- 25 new tests covering auth detection, fix action mapping, launch behavior, panel CTA rendering, and footer hints.
+- **Gemini token refresh fix**: `_maybe_refresh()` was missing `client_id` and `client_secret` in the refresh request body, so every token refresh silently failed and Gemini showed an auth error after the 1-hour token expiry. OAuth client credentials are now read from `~/.gemini/oauth_creds.json` and auto-extracted from the installed Gemini CLI bundle on first run.
+- **Stale creds fix**: `_maybe_refresh()` now re-reads `~/.gemini/oauth_creds.json` from disk when the token is expired, so external re-authentication (via `gemini` CLI) is picked up without restarting the monitor.
+- **Launch fix debounce**: `_launch_fix()` now has a 5-second cooldown per target to prevent multiple Terminal windows from opening on key repeat.
+- **Launch fix stdout suppression**: `_launch_fix()` redirects `osascript`/`open` stdout/stderr to DEVNULL and sends `activate` before `do script` so Terminal comes to the foreground.
+- **File logging**: added `RotatingFileHandler` to `/tmp/ai_monitor.log` (1 MB, 2 backups). WARNING+ always, DEBUG with `--debug`. Captures token refresh failures, cookie extraction, and other previously silent operations.
+- 97 tests pass.
 
 ## 2026-04-16 (session 5)
 

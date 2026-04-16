@@ -81,8 +81,17 @@ def _build_fix_actions(
     return actions
 
 
+_last_fix_launch: dict[str, float] = {}
+_FIX_COOLDOWN = 5.0  # seconds
+
+
 def _launch_fix(kind: str, target: str) -> None:
     """Open a Terminal window (CLI) or browser (web) to fix an auth error."""
+    now = time.monotonic()
+    key = f"{kind}:{target}"
+    if now - _last_fix_launch.get(key, 0) < _FIX_COOLDOWN:
+        return
+    _last_fix_launch[key] = now
     if kind == "cli":
         subprocess.Popen(
             [

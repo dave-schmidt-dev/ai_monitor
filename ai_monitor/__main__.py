@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import os
 import select
 import subprocess
@@ -87,11 +88,19 @@ def _launch_fix(kind: str, target: str) -> None:
             [
                 "osascript",
                 "-e",
+                'tell application "Terminal" to activate',
+                "-e",
                 f'tell application "Terminal" to do script "{target}"',
-            ]
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
     elif kind == "browser":
-        subprocess.Popen(["open", target])
+        subprocess.Popen(
+            ["open", target],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def parse_args() -> argparse.Namespace:
@@ -328,8 +337,22 @@ def _cbreak_mode():
         termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
 
+_LOG_PATH = Path("/tmp/ai_monitor.log")
+
+
+def _setup_logging(debug: bool) -> None:
+    """Configure file logging. Always logs WARNING+; --debug adds DEBUG."""
+    logging.basicConfig(
+        filename=str(_LOG_PATH),
+        level=logging.DEBUG if debug else logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
 def main() -> int:
     args = parse_args()
+    _setup_logging(args.debug)
     config = _load_config()
     enabled_providers: set[str] | None = None
     provider_override = getattr(args, "providers", None)

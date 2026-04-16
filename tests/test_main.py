@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import unittest
 from io import StringIO
 from unittest.mock import MagicMock, patch
@@ -292,18 +293,28 @@ class BuildFixActionsTests(unittest.TestCase):
 
 
 class LaunchFixTests(unittest.TestCase):
-    def test_cli_launches_osascript(self) -> None:
+    def test_cli_launches_osascript_with_activate(self) -> None:
         with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
             _launch_fix("cli", "gh auth login")
         mock_popen.assert_called_once()
         args = mock_popen.call_args[0][0]
         self.assertEqual(args[0], "osascript")
-        self.assertIn("gh auth login", args[2])
+        # First -e activates Terminal, second -e runs the command
+        self.assertIn("activate", args[2])
+        self.assertIn("gh auth login", args[4])
+        # stdout/stderr suppressed
+        kwargs = mock_popen.call_args[1]
+        self.assertEqual(kwargs.get("stdout"), subprocess.DEVNULL)
+        self.assertEqual(kwargs.get("stderr"), subprocess.DEVNULL)
 
     def test_browser_launches_open(self) -> None:
         with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
             _launch_fix("browser", "https://cursor.sh")
-        mock_popen.assert_called_once_with(["open", "https://cursor.sh"])
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        self.assertEqual(args, ["open", "https://cursor.sh"])
+        kwargs = mock_popen.call_args[1]
+        self.assertEqual(kwargs.get("stdout"), subprocess.DEVNULL)
 
     def test_unknown_kind_is_noop(self) -> None:
         with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:

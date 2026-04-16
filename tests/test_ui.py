@@ -659,5 +659,76 @@ class AuthFixPanelTests(unittest.TestCase):
         self.assertIn("HTTP 500 server error", output)
 
 
+class AuthFixFooterTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.now = datetime(2026, 3, 14, 8, 22, 30)
+
+    def test_footer_shows_fix_hints(self) -> None:
+        snaps = [
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="auth failed"),
+            ProviderSnapshot(
+                name="Codex", ok=True, source="api", data={"five_hour_percent_left": 80}
+            ),
+        ]
+        fix_actions = {"1": ("Gemini", "cli", "gemini")}
+        dashboard = build_dashboard(snaps, self.now, 30, fix_actions=fix_actions)
+        output = _capture(dashboard, width=80)
+        self.assertIn("[1]", output)
+        self.assertIn("fix Gemini", output)
+        # Standard hints still present
+        self.assertIn("[q]", output)
+        self.assertIn("[r]", output)
+
+    def test_footer_multiple_fix_hints_in_order(self) -> None:
+        snaps = [
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="auth failed"),
+            ProviderSnapshot(name="Cursor", ok=False, source="api", error="login required"),
+        ]
+        fix_actions = {
+            "1": ("Cursor", "browser", "https://cursor.sh"),
+            "2": ("Gemini", "cli", "gemini"),
+        }
+        dashboard = build_dashboard(snaps, self.now, 30, fix_actions=fix_actions)
+        output = _capture(dashboard, width=100)
+        self.assertIn("[1]", output)
+        self.assertIn("fix Cursor", output)
+        self.assertIn("[2]", output)
+        self.assertIn("fix Gemini", output)
+
+    def test_footer_no_fix_hints_when_empty(self) -> None:
+        snaps = [
+            ProviderSnapshot(
+                name="Codex", ok=True, source="api", data={"five_hour_percent_left": 80}
+            ),
+        ]
+        dashboard = build_dashboard(snaps, self.now, 30, fix_actions={})
+        output = _capture(dashboard, width=80)
+        self.assertNotIn("fix", output)
+
+    def test_footer_no_fix_hints_when_none(self) -> None:
+        snaps = [
+            ProviderSnapshot(
+                name="Codex", ok=True, source="api", data={"five_hour_percent_left": 80}
+            ),
+        ]
+        dashboard = build_dashboard(snaps, self.now, 30)
+        output = _capture(dashboard, width=80)
+        self.assertNotIn("fix", output)
+
+    def test_auth_error_panel_gets_cta_in_dashboard(self) -> None:
+        """Verify the panel inside the dashboard shows the CTA, not raw error."""
+        snaps = [
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="auth failed"),
+        ]
+        fix_actions = {"1": ("Gemini", "cli", "gemini")}
+        dashboard = build_dashboard(snaps, self.now, 30, fix_actions=fix_actions)
+        output = _capture(dashboard, width=80)
+        self.assertIn("auth error", output)
+        self.assertIn("[1]", output)
+        self.assertIn("to fix", output)
+        # Raw error should not appear in the panel body
+        self.assertNotIn("auth failed", output)
+
+
 if __name__ == "__main__":
     unittest.main()

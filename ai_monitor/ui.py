@@ -796,6 +796,7 @@ def build_dashboard(
     updating: bool = False,
     update_elapsed: float = 0.0,
     threshold: float = 20.0,
+    fix_actions: dict[str, tuple[str, str, str]] | None = None,
 ) -> Group:
     """Build the full dashboard as a Rich Group."""
     now = updated_at
@@ -816,7 +817,19 @@ def build_dashboard(
     # always share a row rather than being paired with a taller provider.
     _COMPACT = {"Cursor", "Vibe"}
     ordered = sorted(snapshots, key=lambda s: s.name in _COMPACT)
-    panels = [build_provider_panel(snap, now, threshold=threshold) for snap in ordered]
+    fix_key_by_name: dict[str, str] = {}
+    if fix_actions:
+        for key, (name, _, _) in fix_actions.items():
+            fix_key_by_name[name] = key
+    panels = [
+        build_provider_panel(
+            snap,
+            now,
+            threshold=threshold,
+            auth_fix_key=fix_key_by_name.get(snap.name),
+        )
+        for snap in ordered
+    ]
 
     # Layout: 2-column grid if multiple panels
     if len(panels) > 1:
@@ -834,12 +847,17 @@ def build_dashboard(
     else:
         body = Text("No providers configured.", style="text.muted")
 
-    footer = Text.assemble(
+    footer_parts: list[str | tuple[str, str]] = [
         ("[q]", "cyan"),
         " quit  ",
         ("[r]", "cyan"),
         " refresh",
-    )
+    ]
+    if fix_actions:
+        for key in sorted(fix_actions):
+            name = fix_actions[key][0]
+            footer_parts.extend(["  ", (f"[{key}]", "cyan"), f" fix {name}"])
+    footer = Text.assemble(*footer_parts)
 
     return Group(header, Text(""), body, Text(""), footer)
 

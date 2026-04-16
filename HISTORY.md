@@ -1,5 +1,20 @@
 # History
 
+## 2026-04-16 (session 2)
+
+- Dashboard UI overhaul — all providers now use a unified 5-column row layout (`label | % | bar | reset | pace`) so progress bars align visually across all panels in the 2-column grid.
+- Collapsed windowed providers (Claude, Codex, Gemini) from 2 rows per window to 1: reset time and pace indicator now appear inline on the same row as the usage bar.
+- Collapsed monthly providers (Copilot, Cursor, Vibe) from 3 rows to 1: same inline layout.
+- Label changes: `"5h session"` → `"5h"`, `"1w session"` → `"1w"`, `"flash pool"` → `"flash"`, `"pro pool"` → `"pro"`, `"month rem"` / `"credit rem"` → `"1mo"` (consistent cycle-length notation across all providers).
+- Pace values simplified: `"under pace +15pt"` → `"under +15pt"`, `"over pace -5pt"` → `"over -5pt"`.
+- Switched all times to 24h format — AM/PM removed everywhere (display and header).
+- Header: day-of-week dropped, `"Refreshing in Xs"` → `"↻ Xs"` with pipe divider, `"Last Updated:"` label kept.
+- Footer: `[Ctrl-C] exit · --json --debug` removed, leaving only `[q] quit  [r] refresh`.
+- Provider panel borders now use each provider's accent color (pink=Claude, blue=Codex, teal=Gemini, cyan=Copilot, orange=Cursor, amber=Vibe) instead of flat grey.
+- Gemini windows given approximate `window_hours` (24h flash, 720h pro) to enable pace calculation.
+- Extracted `_pace_style()` helper to eliminate 4 identical if/elif/else pace-color blocks.
+- All test assertions updated for new labels, 24h times, and header format; 55 tests pass.
+
 ## 2026-04-16
 
 - Fixed keyboard shortcut hints in dashboard footer: replaced invisible `dim text.muted` styling with `Text.assemble` using cyan color on key labels (`[q]`, `[r]`, `[Ctrl-C]`). Color-only styles are correctly stripped by `no_color=True` rendering so ANSI regression tests continue to pass.

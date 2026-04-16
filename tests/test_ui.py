@@ -111,10 +111,8 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Codex", output)
-        self.assertIn("5h session", output)
-        self.assertIn("1w session", output)
-        self.assertIn("5h resets", output)
-        self.assertIn("1w resets", output)
+        self.assertIn("5h", output)
+        self.assertIn("1w", output)
         self.assertIn("68%", output)
         self.assertIn("91%", output)
 
@@ -124,8 +122,9 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Claude", output)
-        self.assertIn("5h pace", output)
-        self.assertIn("1w pace", output)
+        self.assertIn("5h", output)
+        self.assertIn("1w", output)
+        self.assertIn("73%", output)
 
     def test_gemini_panel_shows_flash_and_pro(self) -> None:
         snap = ProviderSnapshot(
@@ -133,8 +132,8 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Gemini", output)
-        self.assertIn("flash pool", output)
-        self.assertIn("pro pool", output)
+        self.assertIn("flash", output)
+        self.assertIn("pro", output)
 
     def test_copilot_panel_shows_monthly_metrics(self) -> None:
         snap = ProviderSnapshot(
@@ -142,8 +141,7 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Copilot", output)
-        self.assertIn("month rem", output)
-        self.assertIn("month pace", output)
+        self.assertIn("1mo", output)
         self.assertIn("97.6%", output)
 
     def test_error_panel_shows_error_message(self) -> None:
@@ -168,7 +166,7 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Cursor", output)
-        self.assertIn("credit rem", output)
+        self.assertIn("1mo", output)
         self.assertIn("82.5%", output)
         self.assertIn("pro", output)
 
@@ -185,7 +183,7 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Vibe", output)
-        self.assertIn("month rem", output)
+        self.assertIn("1mo", output)
         self.assertIn("99.8%", output)
 
     def test_cached_badge_shows_in_subtitle(self) -> None:
@@ -230,7 +228,7 @@ class DashboardTests(unittest.TestCase):
         dashboard = build_dashboard([self.codex_snap], self.now, 30)
         output = _capture(dashboard, width=80)
         self.assertIn("AI Usage Monitor", output)
-        self.assertIn("Refreshing in 30s", output)
+        self.assertIn("↻ 30s", output)
         self.assertIn("[q]", output)
 
     def test_dashboard_updating_badge(self) -> None:
@@ -238,7 +236,7 @@ class DashboardTests(unittest.TestCase):
             [self.codex_snap], self.now, 0, updating=True, update_elapsed=1.4
         )
         output = _capture(dashboard, width=80)
-        self.assertIn("Refreshing", output)
+        self.assertIn("↻ 1.4s", output)
 
     def test_two_column_grid_at_wide_width(self) -> None:
         dashboard = build_dashboard([self.codex_snap, self.claude_snap], self.now, 30)
@@ -274,18 +272,18 @@ class FormatResetDisplayTests(unittest.TestCase):
 
     def test_normalizes_24_hour_same_day_times(self) -> None:
         value = _format_reset_display("Resets 13:16", self.now)
-        self.assertEqual(value, "1:16 PM")
+        self.assertEqual(value, "13:16")
 
     def test_normalizes_relative_times(self) -> None:
         value = _format_reset_display("Resets in 2h 14m", self.now)
-        self.assertEqual(value, "10:36 AM")
+        self.assertEqual(value, "10:36")
 
     def test_normalizes_date_stamped_provider_formats(self) -> None:
         cases = {
-            "Resets on Mar 18, 9:00AM": "Mar 18 9:00 AM",
-            "resets 03:09 on 17 Mar": "Mar 17 3:09 AM",
-            "Resets Mar 17 at 4 pm": "Mar 17 4:00 PM",
-            "Resets 10pm (EDT)": "10:00 PM",
+            "Resets on Mar 18, 9:00AM": "Mar 18 09:00",
+            "resets 03:09 on 17 Mar": "Mar 17 03:09",
+            "Resets Mar 17 at 4 pm": "Mar 17 16:00",
+            "Resets 10pm (EDT)": "22:00",
         }
         for raw, expected in cases.items():
             with self.subTest(raw=raw):
@@ -325,10 +323,10 @@ class RenderJsonTests(unittest.TestCase):
         codex = next(p for p in payload["providers"] if p["name"] == "Codex")
         claude = next(p for p in payload["providers"] if p["name"] == "Claude")
 
-        self.assertEqual(codex["display"]["five_hour_reset_display"], "1:16 PM")
-        self.assertEqual(codex["display"]["weekly_reset_display"], "Mar 17 9:00 PM")
-        self.assertEqual(claude["display"]["five_hour_reset_display"], "1:16 PM")
-        self.assertEqual(claude["display"]["weekly_reset_display"], "Mar 17 8:00 PM")
+        self.assertEqual(codex["display"]["five_hour_reset_display"], "13:16")
+        self.assertEqual(codex["display"]["weekly_reset_display"], "Mar 17 21:00")
+        self.assertEqual(claude["display"]["five_hour_reset_display"], "13:16")
+        self.assertEqual(claude["display"]["weekly_reset_display"], "Mar 17 20:00")
 
 
 class SharedLabelAlignmentTests(unittest.TestCase):
@@ -362,14 +360,8 @@ class SharedLabelAlignmentTests(unittest.TestCase):
         dashboard = build_dashboard([codex_snap, claude_snap], now, 30)
         output = _capture(dashboard, width=92)
 
-        for label in (
-            "5h session",
-            "5h resets",
-            "5h pace",
-            "1w session",
-            "1w resets",
-            "1w pace",
-        ):
+        # Each window label appears once per provider (2 providers → 2 occurrences each)
+        for label in ("5h", "1w"):
             self.assertEqual(
                 output.count(label),
                 2,
@@ -472,7 +464,7 @@ class CountdownDisplayTests(unittest.TestCase):
             with self.subTest(seconds=seconds):
                 dashboard = build_dashboard([snap], now, seconds)
                 output = _capture(dashboard, width=80)
-                self.assertIn(f"Refreshing in {seconds}s", output)
+                self.assertIn(f"↻ {seconds}s", output)
 
     def test_updating_shows_elapsed(self) -> None:
         now = datetime(2026, 3, 14, 8, 22, 30)
@@ -481,7 +473,7 @@ class CountdownDisplayTests(unittest.TestCase):
         )
         dashboard = build_dashboard([snap], now, 0, updating=True, update_elapsed=3.7)
         output = _capture(dashboard, width=80)
-        self.assertIn("Refreshing 3.7s", output)
+        self.assertIn("↻ 3.7s", output)
 
 
 if __name__ == "__main__":

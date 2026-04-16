@@ -73,18 +73,18 @@ PROVIDER_RENDER_SPECS = {
         windows=(
             WindowRenderSpec(
                 "five_hour",
-                "5h session",
-                "5h resets",
-                "5h pace",
+                "5h",
+                "5h ↻",
+                None,
                 "five_hour_percent_left",
                 "five_hour_reset",
                 5.0,
             ),
             WindowRenderSpec(
                 "weekly",
-                "1w session",
-                "1w resets",
-                "1w pace",
+                "1w",
+                "1w ↻",
+                None,
                 "weekly_percent_left",
                 "weekly_reset",
                 24.0 * 7.0,
@@ -97,18 +97,18 @@ PROVIDER_RENDER_SPECS = {
         windows=(
             WindowRenderSpec(
                 "five_hour",
-                "5h session",
-                "5h resets",
-                "5h pace",
+                "5h",
+                "5h ↻",
+                None,
                 "session_percent_left",
                 "primary_reset",
                 5.0,
             ),
             WindowRenderSpec(
                 "weekly",
-                "1w session",
-                "1w resets",
-                "1w pace",
+                "1w",
+                "1w ↻",
+                None,
                 "weekly_percent_left",
                 "secondary_reset",
                 24.0 * 7.0,
@@ -121,21 +121,21 @@ PROVIDER_RENDER_SPECS = {
         windows=(
             WindowRenderSpec(
                 "flash",
-                "flash pool",
-                "flash reset",
+                "flash",
+                "flash ↻",
                 None,
                 "flash_percent_left",
                 "flash_reset",
-                None,
+                24.0,
             ),
             WindowRenderSpec(
                 "pro",
-                "pro pool",
-                "pro reset",
+                "pro",
+                "pro ↻",
                 None,
                 "pro_percent_left",
                 "pro_reset",
-                None,
+                24.0 * 30,
             ),
         ),
     ),
@@ -145,9 +145,9 @@ PROVIDER_RENDER_SPECS = {
         windows=(
             WindowRenderSpec(
                 "premium",
-                "month rem",
-                "month reset",
-                "month pace",
+                "rem",
+                "mo ↻",
+                None,
                 "premium_percent_left",
                 "premium_reset",
                 None,
@@ -277,8 +277,7 @@ def _countdown_label(reset_text: str | None, now: datetime) -> str | None:
 
 
 def _format_clock(hour: int, minute: int) -> str:
-    stamp = datetime(2000, 1, 1, hour, minute).strftime("%I:%M %p")
-    return stamp.lstrip("0")
+    return f"{hour:02d}:{minute:02d}"
 
 
 def _cached_badge_text(snapshot: ProviderSnapshot, now: datetime) -> str:
@@ -315,14 +314,14 @@ def _pace_label(
     window_hours: float | None,
 ) -> str:
     if percent_left is None or window_hours is None:
-        return "pace n/a"
+        return "n/a"
     target = _parse_reset_target(reset_text, now)
     if target is None:
-        return "pace n/a"
+        return "n/a"
     remaining_seconds = max(0.0, (target - now).total_seconds())
     total_seconds = window_hours * 3600.0
     if total_seconds <= 0:
-        return "pace n/a"
+        return "n/a"
     remaining_fraction = remaining_seconds / total_seconds
     percent_fraction = percent_left / 100.0
     delta = percent_fraction - remaining_fraction
@@ -330,8 +329,8 @@ def _pace_label(
     if abs(delta) <= 0.05:
         return "on pace"
     if delta > 0:
-        return f"under pace +{diff_points}pt"
-    return f"over pace -{diff_points}pt"
+        return f"under +{diff_points}pt"
+    return f"over -{diff_points}pt"
 
 
 def _format_percent_value(percent: float | None) -> str:
@@ -360,12 +359,12 @@ def _billing_cycle_pace_label(
 ) -> str:
     """Compute pace label for any billing cycle with known start and end dates."""
     if percent_left is None or not start_iso or not end_iso:
-        return "pace n/a"
+        return "n/a"
     try:
         start = datetime.fromisoformat(start_iso)
         end = datetime.fromisoformat(end_iso)
     except ValueError:
-        return "pace n/a"
+        return "n/a"
     total_seconds = max(1.0, (end - start).total_seconds())
     if start.tzinfo is None and now.tzinfo is not None:
         now = now.replace(tzinfo=None)
@@ -378,8 +377,8 @@ def _billing_cycle_pace_label(
     if abs(delta) <= 5.0:
         return "on pace"
     if delta > 0:
-        return f"under pace +{diff_points:.1f}pt"
-    return f"over pace -{diff_points:.1f}pt"
+        return f"under +{diff_points:.1f}pt"
+    return f"over -{diff_points:.1f}pt"
 
 
 def _provider_display_fields(
@@ -508,10 +507,14 @@ def build_provider_panel(
 
     spec = PROVIDER_RENDER_SPECS.get(snapshot.name)
 
+    # All panels use the same 5-column layout so bars align across the grid:
+    # label | % | bar | reset | pace
     body = Table.grid(padding=(0, 1))
-    body.add_column(min_width=9)
-    body.add_column(min_width=6)
-    body.add_column(ratio=1)
+    body.add_column(min_width=4)
+    body.add_column(min_width=4)
+    body.add_column(min_width=4, ratio=1)
+    body.add_column()
+    body.add_column()
 
     if snapshot.name == "Copilot":
         _add_copilot_rows(body, snapshot.data, now)
@@ -526,7 +529,7 @@ def build_provider_panel(
 
     panel_kwargs: dict[str, object] = {
         "title": title_text,
-        "border_style": "border",
+        "border_style": accent,
         "subtitle_align": "left",
         "padding": (0, 1),
     }
@@ -536,45 +539,37 @@ def build_provider_panel(
     return Panel(body, **panel_kwargs)
 
 
+def _pace_style(pace: str) -> str:
+    if "under" in pace:
+        return "text.green"
+    if "over" in pace:
+        return "text.red"
+    if "on pace" in pace:
+        return "text.yellow"
+    return "text.muted"
+
+
 def _add_usage_rows(
     table: Table,
     data: dict[str, object],
     now: datetime,
     windows: tuple[WindowRenderSpec, ...],
 ) -> None:
-    """Add metric/reset/pace rows for standard windowed providers."""
+    """Add one row per window: label | % | bar | reset | pace."""
     for window in windows:
         percent = data.get(window.percent_key)
         reset = data.get(window.reset_key)
         reset_str = None if reset is None else str(reset)
         style = _style_for_percent(percent)
-        value_text = _format_percent_value(percent)
+        reset_display = _format_reset_display(reset_str, now)
+        pace = _pace_label(percent, reset_str, now, window.window_hours)
         table.add_row(
             Text(window.session_label, style="text.muted"),
-            Text(value_text, style=style),
+            Text(_format_percent_value(percent), style=style),
             PercentageBar(percent, style),
-        )
-        reset_display = _format_reset_display(reset_str, now)
-        table.add_row(
-            Text(window.reset_label, style="text.muted"),
             Text(reset_display, style="text.cyan"),
-            Text(""),
+            Text(pace, style=_pace_style(pace)),
         )
-        if window.pace_label:
-            pace = _pace_label(percent, reset_str, now, window.window_hours)
-            if "under pace" in pace:
-                pace_style = "text.green"
-            elif "over pace" in pace:
-                pace_style = "text.red"
-            elif "on pace" in pace:
-                pace_style = "text.yellow"
-            else:
-                pace_style = "text.muted"
-            table.add_row(
-                Text(window.pace_label, style="text.muted"),
-                Text(pace, style=pace_style),
-                Text(""),
-            )
 
 
 def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> None:
@@ -583,7 +578,7 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
     percent_left = float(remaining) if isinstance(remaining, (int, float)) else None
     reset_value = (
         data.get("premium_reset")
-        or f"Resets {_copilot_monthly_reset_target(now).astimezone().strftime('%b %d at %I:%M %p')}"
+        or f"Resets {_copilot_monthly_reset_target(now).astimezone().strftime('%b %d at %H:%M')}"
     )
     utc_now = (
         now.astimezone(timezone.utc) if now.tzinfo else now.replace(tzinfo=timezone.utc)
@@ -596,31 +591,15 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
 
     style = _style_for_percent(percent_left)
     value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
-    table.add_row(
-        Text("month rem", style="text.muted"),
-        Text(value_text, style=style),
-        PercentageBar(percent_left, style),
-    )
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
     )
     table.add_row(
-        Text("month reset", style="text.muted"),
+        Text("1mo", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
-        Text(""),
-    )
-    if "under pace" in pace_text:
-        pace_style = "text.green"
-    elif "over pace" in pace_text:
-        pace_style = "text.red"
-    elif "on pace" in pace_text:
-        pace_style = "text.yellow"
-    else:
-        pace_style = "text.muted"
-    table.add_row(
-        Text("month pace", style="text.muted"),
-        Text(pace_text, style=pace_style),
-        Text(""),
+        Text(pace_text, style=_pace_style(pace_text)),
     )
 
 
@@ -637,18 +616,8 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
 
     style = _style_for_percent(percent_left)
     value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
-    table.add_row(
-        Text("credit rem", style="text.muted"),
-        Text(value_text, style=style),
-        PercentageBar(percent_left, style),
-    )
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
-    )
-    table.add_row(
-        Text("resets", style="text.muted"),
-        Text(reset_display, style="text.cyan"),
-        Text(""),
     )
     start_iso = data.get("billing_cycle_start")
     end_iso = data.get("billing_cycle_end_iso")
@@ -658,23 +627,19 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
         str(end_iso) if isinstance(end_iso, str) else None,
         now,
     )
-    if "under pace" in pace_text:
-        pace_style = "text.green"
-    elif "over pace" in pace_text:
-        pace_style = "text.red"
-    elif "on pace" in pace_text:
-        pace_style = "text.yellow"
-    else:
-        pace_style = "text.muted"
     table.add_row(
-        Text("credit pace", style="text.muted"),
-        Text(pace_text, style=pace_style),
-        Text(""),
+        Text("1mo", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
+        Text(reset_display, style="text.cyan"),
+        Text(pace_text, style=_pace_style(pace_text)),
     )
     if plan_name:
         table.add_row(
             Text("plan", style="text.muted"),
             Text(str(plan_name), style="text.ink"),
+            Text(""),
+            Text(""),
             Text(""),
         )
 
@@ -691,18 +656,8 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
 
     style = _style_for_percent(percent_left)
     value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
-    table.add_row(
-        Text("month rem", style="text.muted"),
-        Text(value_text, style=style),
-        PercentageBar(percent_left, style),
-    )
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
-    )
-    table.add_row(
-        Text("month reset", style="text.muted"),
-        Text(reset_display, style="text.cyan"),
-        Text(""),
     )
     start_iso = data.get("start_date")
     end_iso = data.get("end_date")
@@ -712,32 +667,23 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
         str(end_iso) if isinstance(end_iso, str) else None,
         now,
     )
-    if "under pace" in pace_text:
-        pace_style = "text.green"
-    elif "over pace" in pace_text:
-        pace_style = "text.red"
-    elif "on pace" in pace_text:
-        pace_style = "text.yellow"
-    else:
-        pace_style = "text.muted"
     table.add_row(
-        Text("month pace", style="text.muted"),
-        Text(pace_text, style=pace_style),
-        Text(""),
+        Text("1mo", style="text.muted"),
+        Text(value_text, style=style),
+        PercentageBar(percent_left, style),
+        Text(reset_display, style="text.cyan"),
+        Text(pace_text, style=_pace_style(pace_text)),
     )
 
 
 def _add_generic_rows(table: Table, data: dict[str, object], source: str) -> None:
     """Add generic key-value rows for unknown providers."""
+    _e = Text("")
     table.add_row(
-        Text("status", style="text.muted"),
-        Text("ok", style="text.ink"),
-        Text(""),
+        Text("status", style="text.muted"), Text("ok", style="text.ink"), _e, _e, _e
     )
     table.add_row(
-        Text("source", style="text.muted"),
-        Text(source, style="text.ink"),
-        Text(""),
+        Text("source", style="text.muted"), Text(source, style="text.ink"), _e, _e, _e
     )
     count = 0
     for key, value in sorted(data.items()):
@@ -747,7 +693,9 @@ def _add_generic_rows(table: Table, data: dict[str, object], source: str) -> Non
         table.add_row(
             Text(label, style="text.muted"),
             Text(_plain(value), style="text.ink"),
-            Text(""),
+            _e,
+            _e,
+            _e,
         )
         count += 1
         if count >= 4:
@@ -772,17 +720,16 @@ def build_dashboard(
     now = updated_at
 
     # Header
-    if updating:
-        refresh_label, refresh_value = "Refreshing ", f"{update_elapsed:0.1f}s"
-    else:
-        refresh_label, refresh_value = "Refreshing in ", f"{next_refresh_seconds}s"
+    refresh_value = (
+        f"{update_elapsed:0.1f}s" if updating else f"{next_refresh_seconds}s"
+    )
     header = Text.assemble(
         ("AI Usage Monitor", "bold text.cyan"),
         ("  |  ", "text.muted"),
         ("Last Updated: ", "text.muted"),
-        (updated_at.strftime("%a %b %d %I:%M:%S %p"), "text.yellow"),
+        (updated_at.strftime("%b %d %H:%M:%S"), "text.yellow"),
         ("  |  ", "text.muted"),
-        (refresh_label, "text.muted"),
+        ("↻ ", "text.muted"),
         (refresh_value, "text.cyan"),
     )
 
@@ -812,9 +759,7 @@ def build_dashboard(
         ("[q]", "cyan"),
         " quit  ",
         ("[r]", "cyan"),
-        " refresh  ",
-        ("[Ctrl-C]", "cyan"),
-        " exit  ·  --json  --debug",
+        " refresh",
     )
 
     return Group(header, Text(""), body, Text(""), footer)
@@ -828,7 +773,7 @@ def build_loading_screen(
         ("AI Usage Monitor", "bold text.cyan"),
         ("  |  ", "text.muted"),
         ("Last Updated: ", "text.muted"),
-        (updated_at.strftime("%a %b %d %I:%M:%S %p"), "text.yellow"),
+        (updated_at.strftime("%b %d %H:%M:%S"), "text.yellow"),
         ("  |  ", "text.muted"),
         ("Starting up ", "text.muted"),
         (f"{elapsed_seconds:0.1f}s", "text.cyan"),
@@ -850,7 +795,7 @@ def build_loading_screen(
         padding=(0, 1),
     )
 
-    footer = Text.assemble(("[Ctrl-C]", "cyan"), " exit")
+    footer = Text.assemble(("[q]", "cyan"), " quit  ", ("[r]", "cyan"), " refresh")
     return Group(header, Text(""), panel, Text(""), footer)
 
 

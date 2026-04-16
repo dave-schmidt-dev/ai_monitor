@@ -388,7 +388,12 @@ def main() -> int:
             snapshots = collect_snapshots(providers, args.debug)
             _check_thresholds(snapshots, threshold, notified_providers)
             updated_at = datetime.now()
-            console.print(build_dashboard(snapshots, updated_at, 0, threshold=threshold))
+            fix_actions = _build_fix_actions(snapshots)
+            console.print(
+                build_dashboard(
+                    snapshots, updated_at, 0, threshold=threshold, fix_actions=fix_actions
+                )
+            )
             return 0
 
         # Live interactive mode
@@ -427,6 +432,7 @@ def main() -> int:
                     deadline = time.monotonic() + args.interval
                     remaining = args.interval
                     refresh_now = False
+                    fix_actions = _build_fix_actions(current)
                     while remaining > 0 and not quit_requested:
                         live.update(
                             build_dashboard(
@@ -434,6 +440,7 @@ def main() -> int:
                                 updated_at,
                                 remaining,
                                 threshold=threshold,
+                                fix_actions=fix_actions,
                             )
                         )
                         live.refresh()
@@ -449,6 +456,9 @@ def main() -> int:
                                 if key in ("r", "R"):
                                     refresh_now = True
                                     break
+                                if key in fix_actions:
+                                    _, kind, target = fix_actions[key]
+                                    _launch_fix(kind, target)
                         else:
                             time.sleep(wait_time)
                         remaining -= 1
@@ -472,6 +482,7 @@ def main() -> int:
                                     updating=True,
                                     update_elapsed=time.monotonic() - refresh_started,
                                     threshold=threshold,
+                                    fix_actions=fix_actions,
                                 )
                             )
                             live.refresh()

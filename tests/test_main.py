@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from ai_monitor.__main__ import AUTH_ACTIONS, _is_auth_error, main
+from ai_monitor.__main__ import AUTH_ACTIONS, _build_fix_actions, _is_auth_error, _launch_fix, main
 from ai_monitor.providers import ProviderSnapshot
 from ai_monitor.ui import THEME, build_dashboard
 
@@ -239,6 +239,76 @@ class IsAuthErrorTests(unittest.TestCase):
     def test_all_six_providers_in_auth_actions(self) -> None:
         expected = {"Claude", "Codex", "Gemini", "Copilot", "Cursor", "Vibe"}
         self.assertEqual(set(AUTH_ACTIONS.keys()), expected)
+
+
+class BuildFixActionsTests(unittest.TestCase):
+    def test_single_auth_error(self) -> None:
+        snaps = [
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="auth failed"),
+        ]
+        actions = _build_fix_actions(snaps)
+        self.assertEqual(actions, {"1": ("Gemini", "cli", "gemini")})
+
+    def test_multiple_auth_errors_alphabetical(self) -> None:
+        snaps = [
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="auth failed"),
+            ProviderSnapshot(name="Claude", ok=False, source="api", error="authenticate required"),
+            ProviderSnapshot(
+                name="Codex", ok=True, source="api", data={"five_hour_percent_left": 80}
+            ),
+        ]
+        actions = _build_fix_actions(snaps)
+        self.assertEqual(actions["1"], ("Claude", "cli", "claude login"))
+        self.assertEqual(actions["2"], ("Gemini", "cli", "gemini"))
+        self.assertEqual(len(actions), 2)
+
+    def test_no_auth_errors_returns_empty(self) -> None:
+        snaps = [
+            ProviderSnapshot(
+                name="Claude", ok=True, source="api", data={"session_percent_left": 50}
+            ),
+            ProviderSnapshot(name="Codex", ok=False, source="api", error="connection timeout"),
+        ]
+        actions = _build_fix_actions(snaps)
+        self.assertEqual(actions, {})
+
+    def test_non_auth_error_excluded(self) -> None:
+        snaps = [
+            ProviderSnapshot(name="Claude", ok=False, source="api", error="rate limited"),
+            ProviderSnapshot(name="Gemini", ok=False, source="api", error="sign in required"),
+        ]
+        actions = _build_fix_actions(snaps)
+        self.assertEqual(len(actions), 1)
+        self.assertEqual(actions["1"], ("Gemini", "cli", "gemini"))
+
+    def test_browser_action_type(self) -> None:
+        snaps = [
+            ProviderSnapshot(
+                name="Cursor", ok=False, source="api", error="please login to continue"
+            ),
+        ]
+        actions = _build_fix_actions(snaps)
+        self.assertEqual(actions["1"], ("Cursor", "browser", "https://cursor.sh"))
+
+
+class LaunchFixTests(unittest.TestCase):
+    def test_cli_launches_osascript(self) -> None:
+        with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
+            _launch_fix("cli", "gh auth login")
+        mock_popen.assert_called_once()
+        args = mock_popen.call_args[0][0]
+        self.assertEqual(args[0], "osascript")
+        self.assertIn("gh auth login", args[2])
+
+    def test_browser_launches_open(self) -> None:
+        with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
+            _launch_fix("browser", "https://cursor.sh")
+        mock_popen.assert_called_once_with(["open", "https://cursor.sh"])
+
+    def test_unknown_kind_is_noop(self) -> None:
+        with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
+            _launch_fix("unknown", "something")
+        mock_popen.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -68,6 +68,32 @@ def _is_auth_error(snapshot: ProviderSnapshot) -> bool:
     return any(kw in lower for kw in _AUTH_KEYWORDS)
 
 
+def _build_fix_actions(
+    snapshots: list[ProviderSnapshot],
+) -> dict[str, tuple[str, str, str]]:
+    """Map number keys '1'-'9' to (provider_name, kind, target) for auth-errored providers."""
+    auth_errored = sorted(s.name for s in snapshots if _is_auth_error(s))
+    actions: dict[str, tuple[str, str, str]] = {}
+    for i, name in enumerate(auth_errored[:9], start=1):
+        kind, target = AUTH_ACTIONS[name]
+        actions[str(i)] = (name, kind, target)
+    return actions
+
+
+def _launch_fix(kind: str, target: str) -> None:
+    """Open a Terminal window (CLI) or browser (web) to fix an auth error."""
+    if kind == "cli":
+        subprocess.Popen(
+            [
+                "osascript",
+                "-e",
+                f'tell application "Terminal" to do script "{target}"',
+            ]
+        )
+    elif kind == "browser":
+        subprocess.Popen(["open", target])
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Monitor Codex, Claude, Gemini, and Copilot usage in real time."

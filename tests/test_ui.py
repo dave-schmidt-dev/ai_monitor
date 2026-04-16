@@ -132,8 +132,8 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Gemini", output)
-        self.assertIn("flash", output)
-        self.assertIn("pro", output)
+        self.assertIn("fl", output)
+        self.assertIn("pr", output)
 
     def test_copilot_panel_shows_monthly_metrics(self) -> None:
         snap = ProviderSnapshot(
@@ -141,8 +141,8 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Copilot", output)
-        self.assertIn("1mo", output)
-        self.assertIn("97.6%", output)
+        self.assertIn("mo", output)
+        self.assertIn("98%", output)
 
     def test_error_panel_shows_error_message(self) -> None:
         snap = ProviderSnapshot(
@@ -166,8 +166,8 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Cursor", output)
-        self.assertIn("1mo", output)
-        self.assertIn("82.5%", output)
+        self.assertIn("mo", output)
+        self.assertIn("82%", output)
         self.assertIn("pro", output)
 
     def test_vibe_panel_shows_monthly_usage(self) -> None:
@@ -183,8 +183,164 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Vibe", output)
-        self.assertIn("1mo", output)
-        self.assertIn("99.8%", output)
+        self.assertIn("mo", output)
+        self.assertIn("100%", output)
+
+    def test_empty_view_codex_weekly_zero(self) -> None:
+        snap = ProviderSnapshot(
+            name="Codex",
+            ok=True,
+            source="cli",
+            data={
+                "five_hour_percent_left": 72,
+                "five_hour_reset": "Resets 1:16 PM",
+                "weekly_percent_left": 0,
+                "weekly_reset": "Resets Mar 17 at 9 PM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        # both rows show "until"; no bars anywhere — 5h is still blocked by 1w
+        self.assertIn("until", output)
+        self.assertIn("1w", output)
+        self.assertIn("5h", output)
+        self.assertNotIn("▓", output)
+        self.assertNotIn("72%", output)
+
+    def test_empty_view_codex_five_hour_zero(self) -> None:
+        snap = ProviderSnapshot(
+            name="Codex",
+            ok=True,
+            source="cli",
+            data={
+                "five_hour_percent_left": 0,
+                "five_hour_reset": "Resets 1:16 PM",
+                "weekly_percent_left": 88,
+                "weekly_reset": "Resets Mar 17 at 9 PM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        # both rows show "until"; 1w's 88% is irrelevant — blocked by 5h
+        self.assertIn("until", output)
+        self.assertIn("5h", output)
+        self.assertIn("1w", output)
+        self.assertNotIn("▓", output)
+        self.assertNotIn("88%", output)
+
+    def test_empty_view_gemini_requires_both_zero(self) -> None:
+        # fl=0 but pr has usage → normal view
+        snap = ProviderSnapshot(
+            name="Gemini",
+            ok=True,
+            source="cli",
+            data={
+                "flash_percent_left": 0,
+                "flash_reset": "Resets at 23:58",
+                "pro_percent_left": 83,
+                "pro_reset": "Resets Mar 15 at 06:45",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=50)
+        self.assertNotIn("until", output)
+        self.assertIn("▓", output)
+
+    def test_empty_view_gemini_both_zero(self) -> None:
+        snap = ProviderSnapshot(
+            name="Gemini",
+            ok=True,
+            source="cli",
+            data={
+                "flash_percent_left": 0,
+                "flash_reset": "Resets at 23:58",
+                "pro_percent_left": 0,
+                "pro_reset": "Resets Mar 15 at 06:45",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=50)
+        self.assertIn("until", output)
+        self.assertIn("fl", output)
+        self.assertIn("pr", output)
+        self.assertNotIn("▓", output)
+
+    def test_empty_view_claude_weekly_zero(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude",
+            ok=True,
+            source="cli",
+            data={
+                "session_percent_left": 65,
+                "primary_reset": "Resets 3:00 PM",
+                "weekly_percent_left": 0,
+                "secondary_reset": "Resets Mar 17 at 9 PM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("until", output)
+        self.assertIn("1w", output)
+        self.assertIn("5h", output)
+        self.assertNotIn("▓", output)
+        self.assertNotIn("65%", output)
+
+    def test_empty_view_claude_five_hour_zero(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude",
+            ok=True,
+            source="cli",
+            data={
+                "session_percent_left": 0,
+                "primary_reset": "Resets 3:00 PM",
+                "weekly_percent_left": 91,
+                "secondary_reset": "Resets Mar 17 at 9 PM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("until", output)
+        self.assertIn("5h", output)
+        self.assertIn("1w", output)
+        self.assertNotIn("▓", output)
+        self.assertNotIn("91%", output)
+
+    def test_empty_view_copilot(self) -> None:
+        snap = ProviderSnapshot(
+            name="Copilot",
+            ok=True,
+            source="cli",
+            data={
+                "premium_percent_left": 0,
+                "premium_reset": "Resets Apr 01 at 12:00 AM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("until", output)
+        self.assertNotIn("▓", output)
+
+    def test_empty_view_cursor(self) -> None:
+        snap = ProviderSnapshot(
+            name="Cursor",
+            ok=True,
+            source="api",
+            data={
+                "credit_percent_left": 0,
+                "billing_cycle_end": "Resets Apr 30 at 8:00 PM",
+                "plan_name": "pro",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("until", output)
+        self.assertNotIn("▓", output)
+
+    def test_empty_view_vibe(self) -> None:
+        snap = ProviderSnapshot(
+            name="Vibe",
+            ok=True,
+            source="api",
+            data={
+                "usage_percent": 100,
+                "reset_at": "Resets Apr 30 at 8:00 PM",
+            },
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("until", output)
+        self.assertNotIn("▓", output)
 
     def test_cached_badge_shows_in_subtitle(self) -> None:
         snap = ProviderSnapshot(

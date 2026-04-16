@@ -34,6 +34,7 @@ THEME = Theme(
         "text.pink": "color(219)",
         "border": "color(67)",
         "shadow": "color(239)",
+        "bar.empty": "color(244)",
         "bar.green": "color(114)",
         "bar.yellow": "color(221)",
         "bar.orange": "color(215)",
@@ -121,8 +122,8 @@ PROVIDER_RENDER_SPECS = {
         windows=(
             WindowRenderSpec(
                 "flash",
-                "flash",
-                "flash ↻",
+                "fl",
+                "fl ↻",
                 None,
                 "flash_percent_left",
                 "flash_reset",
@@ -130,8 +131,8 @@ PROVIDER_RENDER_SPECS = {
             ),
             WindowRenderSpec(
                 "pro",
-                "pro",
-                "pro ↻",
+                "pr",
+                "pr ↻",
                 None,
                 "pro_percent_left",
                 "pro_reset",
@@ -336,10 +337,43 @@ def _pace_label(
 def _format_percent_value(percent: float | None) -> str:
     if percent is None:
         return "n/a"
-    rounded = round(percent, 1)
-    if rounded.is_integer():
-        return f"{int(rounded)}%"
-    return f"{rounded:.1f}%"
+    return f"{round(percent)}%"
+
+
+def _is_empty_window(percent: float | None) -> bool:
+    """Return True if a usage window rounds to 0% remaining."""
+    return percent is not None and round(percent) <= 0
+
+
+def _provider_is_empty(snapshot: ProviderSnapshot) -> bool:
+    """Return True when the provider should switch to the depleted/empty view."""
+    if not snapshot.ok or not snapshot.data:
+        return False
+    data = snapshot.data
+    name = snapshot.name
+    if name == "Codex":
+        return _is_empty_window(data.get("five_hour_percent_left")) or _is_empty_window(
+            data.get("weekly_percent_left")
+        )
+    if name == "Claude":
+        return _is_empty_window(data.get("session_percent_left")) or _is_empty_window(
+            data.get("weekly_percent_left")
+        )
+    if name == "Copilot":
+        return _is_empty_window(data.get("premium_percent_left"))
+    if name == "Cursor":
+        return _is_empty_window(data.get("credit_percent_left"))
+    if name == "Vibe":
+        usage = data.get("usage_percent")
+        pct_left = (
+            max(0.0, 100.0 - float(usage)) if isinstance(usage, (int, float)) else None
+        )
+        return _is_empty_window(pct_left)
+    if name == "Gemini":
+        return _is_empty_window(data.get("flash_percent_left")) and _is_empty_window(
+            data.get("pro_percent_left")
+        )
+    return False
 
 
 def _copilot_monthly_reset_target(now: datetime) -> datetime:
@@ -373,12 +407,12 @@ def _billing_cycle_pace_label(
     remaining_seconds = max(0.0, (end - now).total_seconds())
     expected_remaining = (remaining_seconds / total_seconds) * 100.0
     delta = percent_left - expected_remaining
-    diff_points = round(abs(delta), 1)
+    diff_points = round(abs(delta))
     if abs(delta) <= 5.0:
         return "on pace"
     if delta > 0:
-        return f"under +{diff_points:.1f}pt"
-    return f"over -{diff_points:.1f}pt"
+        return f"under +{diff_points}pt"
+    return f"over -{diff_points}pt"
 
 
 def _provider_display_fields(
@@ -454,7 +488,7 @@ class PercentageBar:
         if filled > 0:
             bar.append("█", style=self.style)
         if empty > 0:
-            bar.append("░" * empty, style="shadow")
+            bar.append("░" * empty, style="bar.empty")
         yield bar
 
 
@@ -510,13 +544,15 @@ def build_provider_panel(
     # All panels use the same 5-column layout so bars align across the grid:
     # label | % | bar | reset | pace
     body = Table.grid(padding=(0, 1))
-    body.add_column(min_width=4)
-    body.add_column(min_width=4)
+    body.add_column(min_width=2, max_width=2)
+    body.add_column(min_width=4, max_width=4)
     body.add_column(min_width=4, ratio=1)
-    body.add_column()
-    body.add_column()
+    body.add_column(min_width=12, max_width=12)
+    body.add_column(min_width=12, max_width=12)
 
-    if snapshot.name == "Copilot":
+    if _provider_is_empty(snapshot):
+        _add_empty_view(body, snapshot, now)
+    elif snapshot.name == "Copilot":
         _add_copilot_rows(body, snapshot.data, now)
     elif snapshot.name == "Cursor":
         _add_cursor_rows(body, snapshot.data, now)
@@ -572,6 +608,68 @@ def _add_usage_rows(
         )
 
 
+def _add_empty_view(table: Table, snapshot: ProviderSnapshot, now: datetime) -> None:
+    """All rows show depleted format — provider has no usable capacity.
+
+    Depleted windows show their own reset. Non-depleted windows (still blocked
+    because another window is at 0%) show the blocking window's reset time.
+    """
+    data = snapshot.data
+    assert data is not None
+    name = snapshot.name
+    _e = Text("")
+
+    def _row(label: str, reset_str: str | None) -> None:
+        reset_display = _format_reset_display(reset_str, now)
+        table.add_row(
+            Text(label, style="text.muted"),
+            Text("0%", style="bar.red"),
+            Text(f"until {reset_display}", style="text.red"),
+            _e,
+            _e,
+        )
+
+    spec = PROVIDER_RENDER_SPECS.get(name)
+    if spec:
+        # Find the reset of the first depleted window — that's what blocks usage.
+        blocking_reset: str | None = None
+        for window in spec.windows:
+            if _is_empty_window(data.get(window.percent_key)):
+                raw = data.get(window.reset_key)
+                blocking_reset = None if raw is None else str(raw)
+                break
+
+        for window in spec.windows:
+            percent = data.get(window.percent_key)
+            if _is_empty_window(percent):
+                raw = data.get(window.reset_key)
+                _row(window.session_label, None if raw is None else str(raw))
+            else:
+                # Window has remaining capacity but provider is blocked;
+                # show the blocking reset so the user knows when they can work again.
+                _row(window.session_label, blocking_reset)
+    elif name == "Copilot":
+        reset_value = data.get("premium_reset") or (
+            f"Resets {_copilot_monthly_reset_target(now).astimezone().strftime('%b %d at %H:%M')}"
+        )
+        _row("mo", str(reset_value))
+    elif name == "Cursor":
+        reset_value = data.get("billing_cycle_end")
+        _row("mo", str(reset_value) if isinstance(reset_value, str) else None)
+        plan_name = data.get("plan_name")
+        if plan_name:
+            table.add_row(
+                Text("pl", style="text.muted"),
+                Text(str(plan_name), style="text.ink"),
+                _e,
+                _e,
+                _e,
+            )
+    elif name == "Vibe":
+        reset_value = data.get("reset_at")
+        _row("mo", str(reset_value) if isinstance(reset_value, str) else None)
+
+
 def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> None:
     """Add Copilot-specific monthly metric rows."""
     remaining = data.get("premium_percent_left")
@@ -590,12 +688,12 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
     )
 
     style = _style_for_percent(percent_left)
-    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    value_text = _format_percent_value(percent_left)
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
     )
     table.add_row(
-        Text("1mo", style="text.muted"),
+        Text("mo", style="text.muted"),
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
@@ -615,7 +713,7 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
     plan_name = data.get("plan_name")
 
     style = _style_for_percent(percent_left)
-    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    value_text = _format_percent_value(percent_left)
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
     )
@@ -628,7 +726,7 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
         now,
     )
     table.add_row(
-        Text("1mo", style="text.muted"),
+        Text("mo", style="text.muted"),
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
@@ -636,7 +734,7 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
     )
     if plan_name:
         table.add_row(
-            Text("plan", style="text.muted"),
+            Text("pl", style="text.muted"),
             Text(str(plan_name), style="text.ink"),
             Text(""),
             Text(""),
@@ -655,7 +753,7 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
     reset_value = data.get("reset_at")
 
     style = _style_for_percent(percent_left)
-    value_text = _plain(None if percent_left is None else f"{percent_left:.1f}%")
+    value_text = _format_percent_value(percent_left)
     reset_display = _format_reset_display(
         None if reset_value is None else str(reset_value), now
     )
@@ -668,7 +766,7 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
         now,
     )
     table.add_row(
-        Text("1mo", style="text.muted"),
+        Text("mo", style="text.muted"),
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),

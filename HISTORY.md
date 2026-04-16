@@ -1,5 +1,16 @@
 # History
 
+## 2026-04-16 (session 3)
+
+- **Dashboard label consistency**: all provider window labels shortened to 2 chars (`5h`, `1w`, `mo`, `fl`, `pr`). Gemini `flash`/`pro` → `fl`/`pr`; Copilot/Cursor/Vibe `1mo` → `mo`; Cursor `plan` → `pl`. Column 1 pinned to `max_width=2` in the table layout.
+- **Percent format**: all providers now display integer-only percentages (`99%` not `99.1%`). `_format_percent_value` simplified; Copilot/Cursor/Vibe previously used `.1f` format which consumed an extra column character and shortened their progress bars.
+- **Pace format**: `_billing_cycle_pace_label` now returns integer point labels (`over -5pt`) matching `_pace_label`, eliminating the 2-char discrepancy that shortened Copilot/Vibe/Cursor bars.
+- **Progress bar width standardised**: reset (col 4) and pace (col 5) columns pinned to `min_width=12, max_width=12`. Combined with the label and percent fixes, all provider bars are now the same width regardless of content variation between providers.
+- **Empty/depleted view**: when a provider has no usable capacity (Codex/Claude: EITHER 5h or 1w at 0%; Copilot/Cursor/Vibe: mo at 0%; Gemini: BOTH fl AND pr at 0%), all rows replace bar+pace with `0%  until <reset_time>`. Non-depleted windows in a blocked provider show the blocking window's reset time. Implemented via `_is_empty_window`, `_provider_is_empty`, and `_add_empty_view`; 9 tests cover all provider-specific trigger logic.
+- **Empty bar colour**: empty bar segments (`░`) now use `bar.empty` (`color(244)`, mid-light grey) instead of `shadow` (`color(239)`, dark grey), clearly distinguishing unused capacity from used.
+- **Quit during refresh bug fixed**: the refresh-phase polling loop now uses `select.select` with a 0.12s timeout to check for `q`/`Q` keypresses, matching the countdown phase. Previously `time.sleep(0.12)` blocked keyboard input until the fetch completed.
+- 64 tests pass.
+
 ## 2026-04-16 (session 2)
 
 - Dashboard UI overhaul — all providers now use a unified 5-column row layout (`label | % | bar | reset | pace`) so progress bars align visually across all panels in the 2-column grid.

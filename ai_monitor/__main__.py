@@ -441,11 +441,25 @@ def main() -> int:
                                 )
                             )
                             live.refresh()
-                            time.sleep(0.12)
-                        current = refresh_future.result()
-                        _check_thresholds(current, threshold, notified_providers)
+                            if sys.stdin.isatty():
+                                readable, _, _ = select.select(
+                                    [sys.stdin], [], [], 0.12
+                                )
+                                if readable:
+                                    key = sys.stdin.read(1)
+                                    if key in ("q", "Q"):
+                                        quit_requested = True
+                                        break
+                            else:
+                                time.sleep(0.12)
+                        if not quit_requested:
+                            current = refresh_future.result()
+                            _check_thresholds(current, threshold, notified_providers)
                     finally:
                         refresh_executor.shutdown(wait=False, cancel_futures=True)
+
+                    if quit_requested:
+                        break
 
     except KeyboardInterrupt:
         return 0

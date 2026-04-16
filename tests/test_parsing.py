@@ -133,8 +133,12 @@ class ParsingTests(unittest.TestCase):
         self.assertEqual(status.weekly_percent_left, 4)
         self.assertEqual(status.opus_percent_left, 80)
         self.assertRegex(status.primary_reset or "", r"^Resets 5 pm \((EST|EDT|ET)\)$")
-        self.assertRegex(status.secondary_reset or "", r"^Resets 10 am \((EST|EDT|ET)\)$")
-        self.assertRegex(status.opus_reset or "", r"^Resets Apr 19 at 6 pm \((EST|EDT|ET)\)$")
+        self.assertRegex(
+            status.secondary_reset or "", r"^Resets 10 am \((EST|EDT|ET)\)$"
+        )
+        self.assertRegex(
+            status.opus_reset or "", r"^Resets Apr 19 at 6 pm \((EST|EDT|ET)\)$"
+        )
 
     def test_claude_usage_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "rate limited"):

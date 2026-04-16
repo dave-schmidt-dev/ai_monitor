@@ -84,7 +84,9 @@ class PersistentPTYSession:
         termios.tcsetwinsize(fd, winsize)
 
     def is_alive(self) -> bool:
-        return bool(self.process and self.process.poll() is None and self.master_fd is not None)
+        return bool(
+            self.process and self.process.poll() is None and self.master_fd is not None
+        )
 
     def ensure(self) -> None:
         if not self.is_alive():
@@ -200,9 +202,15 @@ class PersistentPTYSession:
                                 raise
                         response_hits.add(prompt)
 
-                if config.stop_substrings and any(stop in clean for stop in config.stop_substrings):
+                if config.stop_substrings and any(
+                    stop in clean for stop in config.stop_substrings
+                ):
                     matched_stop_at = time.monotonic()
-            elif config.idle_timeout is not None and chunks and now - last_output >= config.idle_timeout:
+            elif (
+                config.idle_timeout is not None
+                and chunks
+                and now - last_output >= config.idle_timeout
+            ):
                 break
 
             if (
@@ -233,7 +241,10 @@ class PersistentPTYSession:
                     break
                 last_enter = now
 
-            if matched_stop_at is not None and time.monotonic() - matched_stop_at >= config.settle_after_stop:
+            if (
+                matched_stop_at is not None
+                and time.monotonic() - matched_stop_at >= config.settle_after_stop
+            ):
                 break
 
         return "".join(chunks)

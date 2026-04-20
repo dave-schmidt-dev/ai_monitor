@@ -2,7 +2,7 @@
 
 Real-time terminal monitor for local `codex`, `claude`, `gemini`, `copilot`, `cursor`, and `vibe` usage.
 
-This project uses the same core shortcut as [`steipete/CodexBar`](https://github.com/steipete/CodexBar): it launches your locally authenticated CLI inside a PTY, sends `/status` or `/usage`, strips terminal control sequences, parses the rendered panel, and refreshes on a timer. Gemini now also has a direct internal quota probe fallback because its `/stats` TUI was not stable enough to scrape reliably.
+Probes provider APIs directly using locally authenticated credentials — no PTY, no CLI scraping. Each provider uses its own HTTP or internal API path, so probes are fast and reliable.
 
 ![Warmup screen](docs/screenshots/warmup.png)
 
@@ -10,14 +10,12 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 
 ## Features
 
-- Monitors Codex usage via `/status`
-- Monitors Claude usage via `/usage`
-- Monitors Gemini usage via `/stats`
-- Monitors Copilot premium-request status from the interactive CLI status line
+- Monitors Codex usage via the OpenAI usage API
+- Monitors Claude usage via the Anthropic account API
+- Monitors Gemini usage via the Cloud Code internal quota API (OAuth)
+- Monitors Copilot premium-request usage via the GitHub Copilot internal API
 - Monitors Cursor credit usage via the Cursor Dashboard API
 - Monitors Vibe usage via the Mistral billing API
-- Handles Codex transient PTY probe noise and retries until a real status panel is captured
-- Reuses persistent PTY sessions to reduce refresh latency after startup
 - Refreshes every 120 seconds by default
 - Shows Codex and Claude 5-hour and 1-week session usage, reset times, and pace indicators
 - Shows Gemini Flash and Pro pool remaining percentages with reset countdowns
@@ -32,16 +30,15 @@ This project uses the same core shortcut as [`steipete/CodexBar`](https://github
 - Canonicalizes reset displays to one local format across provider-specific strings
 - Renders a compact grid dashboard optimized for terminal use
 - Exposes `--json` output for scripting and automation, including normalized reset display fields
-- Includes parser tests for representative Codex and Claude output
 
 ## Requirements
 
 - Python 3.10+
-- `codex` installed and authenticated on your `PATH`
-- `claude` installed and authenticated on your `PATH`
-- `gemini` installed and authenticated on your `PATH`
-- `copilot` installed and authenticated on your `PATH`
-- Cursor app or browser session authenticated
+- Codex: `~/.codex/auth.json` present (created by `codex login`)
+- Claude: `~/.claude/` credentials present (created by `claude login`)
+- Gemini: `~/.gemini/oauth_creds.json` present (created by `gemini` sign-in)
+- Copilot: `gh` CLI on `PATH` and authenticated (`gh auth login`)
+- Cursor: app or browser session authenticated
 - Mistral console session authenticated (Safari/Chrome cookie extraction supported)
 - `rich>=15.0` (installed automatically via `pip install` or `uv sync`)
 - A terminal that supports ANSI color
@@ -79,16 +76,10 @@ Optional config file (`.ai_monitor.json` in your current working directory):
 
 ## How It Works
 
-1. Start a persistent PTY-backed session for CLI-backed providers.
-2. Send `/status` to Codex and `/usage` to Claude.
-3. Probe Gemini through the installed CLI's internal quota/config path, with PTY `/stats` as a fallback.
-4. Probe Copilot through an interactive PTY warmup and parse remaining premium percentage from the status line.
-5. Capture the rendered terminal output or structured quota payload.
-6. Strip ANSI/control sequences and normalize the text.
-7. Parse usage percentages and reset windows.
-8. Re-render the dashboard on the chosen refresh interval and watch for threshold crossings.
-
-This is intentionally a CLI/TUI scraping approach, not an official provider API integration.
+1. On startup, initialize one HTTP provider per enabled service.
+2. Probe each provider's API endpoint using local credentials (OAuth tokens, cookie jars, etc.).
+3. Parse the structured JSON response to extract usage percentages and reset timestamps.
+4. Re-render the dashboard on the chosen refresh interval and watch for threshold crossings.
 
 ## Output
 
@@ -130,7 +121,7 @@ Example:
     {
       "name": "Codex",
       "ok": true,
-      "source": "cli",
+      "source": "api",
       "data": {
         "five_hour_reset": "Resets 13:16",
         "weekly_reset": "Resets on Mar 18, 9:00AM"
@@ -147,19 +138,16 @@ Example:
 
 ## Notes
 
-- `codex` is launched with `-s read-only -a untrusted --no-alt-screen` to keep the probe conservative.
-- `claude` is launched in an interactive PTY and the probe auto-accepts the folder trust prompt if it appears.
-- `gemini` prefers a direct internal quota probe against the installed Gemini CLI and only falls back to PTY `/stats` scraping if that direct path fails.
-- `copilot` probing parses passive status-line metadata only (no prompt submission or usage endpoint calls).
-- Gemini internal probing supports both legacy `dist/src/config/*.js` layouts and modern bundled Homebrew layouts (`bundle/chunk-*.js`).
-- Claude `/usage` parsing tolerates compressed single-line usage panels where session/week rows are rendered without line breaks.
-- The first refresh is slower because the local CLI sessions need to start and render their initial TUI state.
-- After startup, the monitor reuses those PTY sessions to make subsequent refreshes faster.
+- Gemini probing calls `loadCodeAssist` before `retrieveUserQuota` to register the session; auth failures surface as a clear re-authenticate message.
+- Copilot probing calls the `gh auth token` helper to retrieve a live GitHub token without storing it locally.
+- Claude probing reads `~/.claude/` OAuth credentials directly; run `claude login` to refresh if probes fail.
 - During each timed refresh, the header switches from `refresh XXs` to a single in-place `updating …` state until all providers complete, then resumes the countdown.
 - Live rendering uses the `rich` library's `Live` display with alt-screen mode, eliminating scrollback buffer growth.
 - In live mode, press `q` to quit or `r` to trigger an immediate refresh.
 - Cursor and Vibe try Safari cookie extraction first; Vibe also supports Chrome cookie extraction.
 - Providers below threshold show a `[!]` badge and trigger one-shot macOS notifications until they recover above threshold.
+- Vibe uses Mistral's `usage_percentage` field as percent used directly. If Mistral shows `1.08% used`, AI Monitor will render about `99%` remaining after rounding.
+- Cursor reads billing-cycle and usage data from the nested `planUsage` payload and treats `limit` / `remaining` as cents, so `2000` means `$20.00` and `1631` means `$16.31` remaining.
 
 ## Limitations
 

@@ -26,6 +26,8 @@
 - [x] Make HTTP providers the default; removed all PTY infrastructure (`pty_session.py`, 4 PTY provider classes, `parsing.py` parse functions, `--compare` flag). Net ~1,500 lines removed.
 - [x] Auth fix actions: numbered key hints for auth-errored providers, launching Terminal or browser to fix.
 - [x] Fix Gemini token refresh (missing client_id/secret), stale creds reload, launch debounce, file logging.
+- [x] Fix Vibe usage parsing so Mistral `usage_percentage` matches the billing console.
+- [x] Clean up Cursor nested JSON parsing so `planUsage` and `planInfo` match the live API payload.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.

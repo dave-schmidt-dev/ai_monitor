@@ -1,5 +1,12 @@
 # History
 
+## 2026-04-19
+
+- **Vibe usage fix**: corrected Mistral `usage_percentage` parsing. The billing API already returns percentage points (`1.08` means `1.08% used`), but AI Monitor multiplied by 100 again and then inverted it, which could drive the Vibe card to `0%` remaining incorrectly.
+- Added provider coverage for the real Mistral API shape and updated the Vibe UI test expectation to match the corrected remaining percentage.
+- **Cursor payload cleanup**: updated Cursor parsing to read `totalPercentUsed`, `autoPercentUsed`, and `apiPercentUsed` from `usage.planUsage`, and to read plan metadata from `plan.planInfo`. The main `% remaining` calculation was already correct via `remaining / limit`, but nested metadata now matches the live API shape too.
+- Added Cursor provider coverage for the current nested `planUsage` and `planInfo` response structure.
+
 ## 2026-04-16 (session 6)
 
 - **Auth fix actions**: When a provider reports an auth error, the dashboard card now shows `auth error — press [N] to fix` instead of the raw error text, and the footer gains `[N] fix <Name>` entries. Pressing the number key opens a new Terminal.app window (CLI auth: `claude login`, `codex login`, `gemini`, `gh auth login`) or the default browser (web auth: Cursor, Vibe). Non-auth errors are unchanged.

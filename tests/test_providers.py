@@ -11,7 +11,9 @@ from ai_monitor.providers import (
     ClaudeHttpProvider,
     CodexHttpProvider,
     CopilotHttpProvider,
+    CursorProvider,
     GeminiHttpProvider,
+    VibeProvider,
     ProbeFailure,
     _format_reset_time,
     _http_json,
@@ -167,6 +169,73 @@ class CopilotHttpProviderTests(unittest.TestCase):
             with self.assertRaises(ProbeFailure) as ctx:
                 provider.fetch()
         self.assertIn("gh auth login", str(ctx.exception))
+
+
+class VibeProviderTests(unittest.TestCase):
+    RESPONSE = {
+        "usage_percentage": 1.0841208999999998,
+        "payg_enabled": False,
+        "reset_at": "2026-05-01T00:00:00Z",
+        "start_date": "2026-04-01T00:00:00Z",
+        "end_date": "2026-04-30T23:59:59.999Z",
+        "vibe": {"models": {}},
+    }
+
+    def test_usage_percentage_is_not_scaled_again(self) -> None:
+        provider = VibeProvider(".")
+        provider._ory_name = "ory_session_test"
+        provider._ory_value = "token"
+        provider._csrf = "csrf"
+        body = json.dumps(self.RESPONSE).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            status = provider.fetch()
+        self.assertAlmostEqual(status.usage_percent, 1.0841, places=4)
+        self.assertEqual(status.start_date, "2026-04-01T00:00:00Z")
+        self.assertEqual(status.end_date, "2026-04-30T23:59:59.999Z")
+
+
+class CursorProviderTests(unittest.TestCase):
+    USAGE_RESPONSE = {
+        "billingCycleStart": 1775994366000,
+        "billingCycleEnd": 1778586366000,
+        "planUsage": {
+            "apiPercentUsed": 1.5555555555555556,
+            "autoPercentUsed": 6.644444444444445,
+            "includedSpend": 369,
+            "limit": 2000,
+            "remaining": 1631,
+            "totalPercentUsed": 4.1000000000000005,
+            "totalSpend": 369,
+        },
+    }
+    PLAN_RESPONSE = {
+        "planInfo": {
+            "name": "pro",
+        }
+    }
+
+    def test_cursor_nested_plan_usage_mapping(self) -> None:
+        provider = CursorProvider()
+        provider._access_token = "cursor-access-token"
+        provider._refresh_token = "cursor-refresh-token"
+        with patch.object(
+            provider,
+            "_api_post",
+            side_effect=[self.USAGE_RESPONSE, self.PLAN_RESPONSE],
+        ):
+            status = provider.fetch()
+        self.assertAlmostEqual(status.credit_percent_left, 95.9, places=1)
+        self.assertAlmostEqual(status.auto_percent_used, 6.644444444444445)
+        self.assertAlmostEqual(status.api_percent_used, 1.5555555555555556)
+        self.assertEqual(status.remaining_cents, 1631)
+        self.assertEqual(status.limit_cents, 2000)
+        self.assertEqual(status.plan_name, "pro")
+        self.assertEqual(status.billing_cycle_start, "2026-04-12")
+        self.assertEqual(status.billing_cycle_end_iso, "2026-05-12")
 
 
 class CodexHttpProviderTests(unittest.TestCase):

@@ -418,7 +418,8 @@ class VibeProvider:
             raise ProbeFailure("Mistral API returned invalid JSON", body[:500]) from exc
 
         usage_pct_raw = payload.get("usage_percentage")
-        usage_percent = round(float(usage_pct_raw) * 100, 4) if usage_pct_raw is not None else None
+        # Mistral returns percentage points already, e.g. 1.08 means 1.08% used.
+        usage_percent = round(float(usage_pct_raw), 4) if usage_pct_raw is not None else None
         reset_at = payload.get("reset_at")
         if reset_at:
             try:
@@ -564,10 +565,15 @@ class CursorProvider:
             pass  # plan info is optional
 
         plan_usage = usage_data.get("planUsage") or {}
+        if not isinstance(plan_usage, dict):
+            plan_usage = {}
+        plan_info = plan_data.get("planInfo") or {}
+        if not isinstance(plan_info, dict):
+            plan_info = {}
         credit_percent_left: float | None = None
 
         # Try totalPercentUsed first, fall back to remaining/limit cents
-        total_percent_used = usage_data.get("totalPercentUsed")
+        total_percent_used = plan_usage.get("totalPercentUsed")
         if total_percent_used is not None:
             try:
                 credit_percent_left = round(100.0 - float(total_percent_used), 2)
@@ -586,7 +592,7 @@ class CursorProvider:
                     pass
 
         auto_percent_used: float | None = None
-        raw_auto = usage_data.get("autoPercentUsed")
+        raw_auto = plan_usage.get("autoPercentUsed")
         if raw_auto is not None:
             try:
                 auto_percent_used = float(raw_auto)
@@ -594,7 +600,7 @@ class CursorProvider:
                 pass
 
         api_percent_used: float | None = None
-        raw_api = usage_data.get("apiPercentUsed")
+        raw_api = plan_usage.get("apiPercentUsed")
         if raw_api is not None:
             try:
                 api_percent_used = float(raw_api)
@@ -639,7 +645,11 @@ class CursorProvider:
             except (TypeError, ValueError):
                 pass
 
-        plan_name = plan_data.get("planName")
+        plan_name = (
+            plan_info.get("name")
+            or plan_info.get("planName")
+            or plan_data.get("planName")
+        )
 
         raw_text = json.dumps(
             {"usage": usage_data, "plan": plan_data},

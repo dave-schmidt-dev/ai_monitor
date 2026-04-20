@@ -166,7 +166,7 @@ class ProviderPanelTests(unittest.TestCase):
             ok=True,
             source="api",
             data={
-                "usage_percent": 0.17,
+                "usage_percent": 1.17,
                 "reset_at": "Resets Apr 30 at 8:00 PM",
                 "payg_enabled": False,
             },
@@ -174,7 +174,7 @@ class ProviderPanelTests(unittest.TestCase):
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Vibe", output)
         self.assertIn("mo", output)
-        self.assertIn("100%", output)
+        self.assertIn("99%", output)
 
     def test_empty_view_codex_weekly_zero(self) -> None:
         snap = ProviderSnapshot(

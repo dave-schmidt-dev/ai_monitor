@@ -1,5 +1,13 @@
 # History
 
+## 2026-04-21
+
+- **Cursor panel cleanup**: removed the extra `pl <plan>` row from the Cursor card. Cursor still parses `plan_name` from the API payload for JSON/debug visibility, but the TUI now shows only the included API-spend row (`ap`) so the panel stays compact and avoids low-value frame clutter.
+- **Cursor label cleanup**: renamed the Cursor row label from `mo` to `ap` so the panel reflects the metric it actually tracks: the included API-spend bucket from Cursor's `remaining` / `limit` fields, not Cursor's ambiguous mixed "Total" usage percentage.
+- Updated the README Cursor output description and tightened UI coverage so the Cursor panel no longer renders `pl` or `pro` in normal or depleted states.
+- **Cursor credit-percent fix**: changed Cursor remaining-percentage math to prefer `planUsage.remaining / planUsage.limit` over `planUsage.totalPercentUsed`. On April 21, 2026, the live Cursor payload reported `remaining=1629`, `limit=2000`, and `totalPercentUsed=4.1`; the cents ratio yields about `81.45%` remaining while `100 - totalPercentUsed` incorrectly rendered about `95.9%`.
+- Added provider coverage for both paths: cents-based percentage as the primary calculation and `totalPercentUsed` as a fallback when Cursor omits `remaining`/`limit`.
+
 ## 2026-04-19
 
 - **Vibe usage fix**: corrected Mistral `usage_percentage` parsing. The billing API already returns percentage points (`1.08` means `1.08% used`), but AI Monitor multiplied by 100 again and then inverted it, which could drive the Vibe card to `0%` remaining incorrectly.

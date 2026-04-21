@@ -652,16 +652,7 @@ def _add_empty_view(table: Table, snapshot: ProviderSnapshot, now: datetime) -> 
         _row("mo", str(reset_value))
     elif name == "Cursor":
         reset_value = data.get("billing_cycle_end")
-        _row("mo", str(reset_value) if isinstance(reset_value, str) else None)
-        plan_name = data.get("plan_name")
-        if plan_name:
-            table.add_row(
-                Text("pl", style="text.muted"),
-                Text(str(plan_name), style="text.ink"),
-                _e,
-                _e,
-                _e,
-            )
+        _row("ap", str(reset_value) if isinstance(reset_value, str) else None)
     elif name == "Vibe":
         reset_value = data.get("reset_at")
         _row("mo", str(reset_value) if isinstance(reset_value, str) else None)
@@ -701,7 +692,6 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
         percent_left = None
 
     reset_value = data.get("billing_cycle_end")
-    plan_name = data.get("plan_name")
 
     style = _style_for_percent(percent_left)
     value_text = _format_percent_value(percent_left)
@@ -715,20 +705,12 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
         now,
     )
     table.add_row(
-        Text("mo", style="text.muted"),
+        Text("ap", style="text.muted"),
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
         Text(pace_text, style=_pace_style(pace_text)),
     )
-    if plan_name:
-        table.add_row(
-            Text("pl", style="text.muted"),
-            Text(str(plan_name), style="text.ink"),
-            Text(""),
-            Text(""),
-            Text(""),
-        )
 
 
 def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None:

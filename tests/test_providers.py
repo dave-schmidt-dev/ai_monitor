@@ -13,8 +13,8 @@ from ai_monitor.providers import (
     CopilotHttpProvider,
     CursorProvider,
     GeminiHttpProvider,
-    VibeProvider,
     ProbeFailure,
+    VibeProvider,
     _format_reset_time,
     _http_json,
 )
@@ -228,7 +228,7 @@ class CursorProviderTests(unittest.TestCase):
             side_effect=[self.USAGE_RESPONSE, self.PLAN_RESPONSE],
         ):
             status = provider.fetch()
-        self.assertAlmostEqual(status.credit_percent_left, 95.9, places=1)
+        self.assertAlmostEqual(status.credit_percent_left, 81.55, places=2)
         self.assertAlmostEqual(status.auto_percent_used, 6.644444444444445)
         self.assertAlmostEqual(status.api_percent_used, 1.5555555555555556)
         self.assertEqual(status.remaining_cents, 1631)
@@ -236,6 +236,25 @@ class CursorProviderTests(unittest.TestCase):
         self.assertEqual(status.plan_name, "pro")
         self.assertEqual(status.billing_cycle_start, "2026-04-12")
         self.assertEqual(status.billing_cycle_end_iso, "2026-05-12")
+
+    def test_cursor_falls_back_to_total_percent_used_when_cents_missing(self) -> None:
+        provider = CursorProvider()
+        provider._access_token = "cursor-access-token"
+        provider._refresh_token = "cursor-refresh-token"
+        usage_response = {
+            "billingCycleStart": 1775994366000,
+            "billingCycleEnd": 1778586366000,
+            "planUsage": {
+                "totalPercentUsed": 4.1,
+            },
+        }
+        with patch.object(
+            provider,
+            "_api_post",
+            side_effect=[usage_response, self.PLAN_RESPONSE],
+        ):
+            status = provider.fetch()
+        self.assertAlmostEqual(status.credit_percent_left, 95.9, places=1)
 
 
 class CodexHttpProviderTests(unittest.TestCase):

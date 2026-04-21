@@ -572,22 +572,23 @@ class CursorProvider:
             plan_info = {}
         credit_percent_left: float | None = None
 
-        # Try totalPercentUsed first, fall back to remaining/limit cents
-        total_percent_used = plan_usage.get("totalPercentUsed")
-        if total_percent_used is not None:
+        # Cursor's totalPercentUsed does not consistently match remaining/limit.
+        # Prefer the cents-based remaining value when available.
+        raw_remaining = plan_usage.get("remaining")
+        raw_limit = plan_usage.get("limit")
+        if raw_remaining is not None and raw_limit is not None:
             try:
-                credit_percent_left = round(100.0 - float(total_percent_used), 2)
+                remaining = int(raw_remaining)
+                limit = int(raw_limit)
+                if limit > 0:
+                    credit_percent_left = round((remaining / limit) * 100.0, 2)
             except (TypeError, ValueError):
                 pass
         if credit_percent_left is None:
-            raw_remaining = plan_usage.get("remaining")
-            raw_limit = plan_usage.get("limit")
-            if raw_remaining is not None and raw_limit is not None:
+            total_percent_used = plan_usage.get("totalPercentUsed")
+            if total_percent_used is not None:
                 try:
-                    remaining = int(raw_remaining)
-                    limit = int(raw_limit)
-                    if limit > 0:
-                        credit_percent_left = round((remaining / limit) * 100.0, 2)
+                    credit_percent_left = round(100.0 - float(total_percent_used), 2)
                 except (TypeError, ValueError):
                     pass
 

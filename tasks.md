@@ -28,6 +28,9 @@
 - [x] Fix Gemini token refresh (missing client_id/secret), stale creds reload, launch debounce, file logging.
 - [x] Fix Vibe usage parsing so Mistral `usage_percentage` matches the billing console.
 - [x] Clean up Cursor nested JSON parsing so `planUsage` and `planInfo` match the live API payload.
+- [x] Remove the low-value Cursor `pl` plan row from the TUI card.
+- [x] Make Cursor percentage tracking use the included API-spend bucket (`remaining / limit`) instead of Cursor's inconsistent `totalPercentUsed` field.
+- [x] Rename the Cursor TUI row label from `mo` to `ap` so it matches the included API-spend metric.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.

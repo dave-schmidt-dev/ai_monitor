@@ -20,7 +20,7 @@ Probes provider APIs directly using locally authenticated credentials — no PTY
 - Shows Codex and Claude 5-hour and 1-week session usage, reset times, and pace indicators
 - Shows Gemini Flash and Pro pool remaining percentages with reset countdowns
 - Shows Copilot monthly premium remaining (`month rem`) with a color progress bar, monthly reset (`month reset`), and monthly pace (`month pace`) in the same card style
-- Shows Cursor credit remaining (`credit rem`), reset, plan, and billing-cycle pace
+- Shows Cursor included API-spend remaining, reset, and billing-cycle pace
 - Shows Vibe monthly remaining (`month rem`), reset, and billing-cycle pace
 - Shows compact single-line error cards to reduce vertical noise when a provider is unavailable
 - Supports live keyboard shortcuts (`q` quit, `r` refresh now)
@@ -100,7 +100,7 @@ Gemini card shows:
 Copilot / Cursor / Vibe cards show:
 
 - `mo`: monthly remaining percentage, billing-cycle reset, pace indicator
-- Cursor also shows `pl` (plan name) when available
+- `ap`: Cursor included API-spend remaining percentage, billing-cycle reset, pace indicator
 
 Reset displays are normalized before rendering:
 
@@ -147,7 +147,7 @@ Example:
 - Cursor and Vibe try Safari cookie extraction first; Vibe also supports Chrome cookie extraction.
 - Providers below threshold show a `[!]` badge and trigger one-shot macOS notifications until they recover above threshold.
 - Vibe uses Mistral's `usage_percentage` field as percent used directly. If Mistral shows `1.08% used`, AI Monitor will render about `99%` remaining after rounding.
-- Cursor reads billing-cycle and usage data from the nested `planUsage` payload and treats `limit` / `remaining` as cents, so `2000` means `$20.00` and `1631` means `$16.31` remaining.
+- Cursor reads billing-cycle and usage data from the nested `planUsage` payload and treats `limit` / `remaining` as cents, so `2000` means `$20.00` and `1631` means `$16.31` remaining. The Cursor card intentionally shows that included API-spend bucket as `ap`, and the main `% remaining` uses that cents ratio when present and only falls back to `totalPercentUsed` if Cursor omits the spend fields.
 
 ## Limitations
 

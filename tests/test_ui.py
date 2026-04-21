@@ -156,9 +156,10 @@ class ProviderPanelTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Cursor", output)
-        self.assertIn("mo", output)
+        self.assertIn("ap", output)
         self.assertIn("82%", output)
-        self.assertIn("pro", output)
+        self.assertNotIn("pl", output)
+        self.assertNotIn("pro", output)
 
     def test_vibe_panel_shows_monthly_usage(self) -> None:
         snap = ProviderSnapshot(
@@ -315,8 +316,11 @@ class ProviderPanelTests(unittest.TestCase):
             },
         )
         output = _capture(build_provider_panel(snap, self.now), width=70)
+        self.assertIn("ap", output)
         self.assertIn("until", output)
         self.assertNotIn("▓", output)
+        self.assertNotIn("pl", output)
+        self.assertNotIn("pro", output)
 
     def test_empty_view_vibe(self) -> None:
         snap = ProviderSnapshot(

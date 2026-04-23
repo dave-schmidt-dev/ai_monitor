@@ -31,6 +31,7 @@
 - [x] Remove the low-value Cursor `pl` plan row from the TUI card.
 - [x] Make Cursor percentage tracking use the included API-spend bucket (`remaining / limit`) instead of Cursor's inconsistent `totalPercentUsed` field.
 - [x] Rename the Cursor TUI row label from `mo` to `ap` so it matches the included API-spend metric.
+- [x] Graceful network error handling: retain cached data during transient outages, show offline in title, stale after 5m.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.

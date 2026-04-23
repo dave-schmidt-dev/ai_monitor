@@ -336,7 +336,7 @@ class ProviderPanelTests(unittest.TestCase):
         self.assertIn("until", output)
         self.assertNotIn("▓", output)
 
-    def test_cached_badge_shows_in_subtitle(self) -> None:
+    def test_cached_shows_offline_in_title(self) -> None:
         snap = ProviderSnapshot(
             name="Codex",
             ok=True,
@@ -345,7 +345,21 @@ class ProviderPanelTests(unittest.TestCase):
             cached_since=datetime(2026, 3, 14, 8, 19, 0),
         )
         output = _capture(build_provider_panel(snap, self.now), width=50)
-        self.assertIn("cached", output)
+        self.assertIn("offline", output)
+        self.assertIn("3m", output)
+
+    def test_stale_panel_shows_yellow_message(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude",
+            ok=False,
+            source="api",
+            error="stale — offline for 7m",
+        )
+        output = _capture(build_provider_panel(snap, self.now), width=50)
+        self.assertIn("stale", output)
+        self.assertIn("7m", output)
+        # Stale panels should NOT show "error:" prefix
+        self.assertNotIn("error:", output)
 
 
 class DashboardTests(unittest.TestCase):

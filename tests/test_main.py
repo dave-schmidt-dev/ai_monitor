@@ -11,7 +11,16 @@ from unittest.mock import MagicMock, patch
 
 from rich.console import Console
 
-from ai_monitor.__main__ import AUTH_ACTIONS, _build_fix_actions, _is_auth_error, _launch_fix, main
+from ai_monitor.__main__ import (
+    AUTH_ACTIONS,
+    STALE_THRESHOLD_SECONDS,
+    _build_fix_actions,
+    _is_auth_error,
+    _is_transient_probe_error,
+    _launch_fix,
+    _merge_with_previous,
+    main,
+)
 from ai_monitor.providers import ProviderSnapshot
 from ai_monitor.ui import THEME, build_dashboard
 
@@ -320,6 +329,130 @@ class LaunchFixTests(unittest.TestCase):
         with patch("ai_monitor.__main__.subprocess.Popen") as mock_popen:
             _launch_fix("unknown", "something")
         mock_popen.assert_not_called()
+
+
+class IsTransientProbeErrorTests(unittest.TestCase):
+    """Test transient error detection including network errors."""
+
+    def _snap(self, error: str) -> ProviderSnapshot:
+        return ProviderSnapshot(name="Claude", ok=False, source="api", error=error)
+
+    def test_network_error_is_transient(self) -> None:
+        self.assertTrue(
+            _is_transient_probe_error(self._snap("Network error: Name or service not known"))
+        )
+
+    def test_http_500_is_transient(self) -> None:
+        self.assertTrue(_is_transient_probe_error(self._snap("HTTP 500")))
+
+    def test_http_504_is_transient(self) -> None:
+        self.assertTrue(_is_transient_probe_error(self._snap("HTTP 504")))
+
+    def test_timed_out_is_transient(self) -> None:
+        self.assertTrue(_is_transient_probe_error(self._snap("timed out")))
+
+    def test_invalid_json_is_transient(self) -> None:
+        self.assertTrue(_is_transient_probe_error(self._snap("Invalid JSON response")))
+
+    def test_existing_markers_still_work(self) -> None:
+        self.assertTrue(_is_transient_probe_error(self._snap("rate limited")))
+        self.assertTrue(_is_transient_probe_error(self._snap("HTTP 429")))
+        self.assertTrue(_is_transient_probe_error(self._snap("HTTP 503")))
+
+    def test_auth_error_not_transient(self) -> None:
+        self.assertFalse(_is_transient_probe_error(self._snap("session expired — visit claude.ai")))
+
+    def test_ok_snapshot_not_transient(self) -> None:
+        snap = ProviderSnapshot(
+            name="Claude", ok=True, source="api", data={"session_percent_left": 50}
+        )
+        self.assertFalse(_is_transient_probe_error(snap))
+
+
+class MergeWithPreviousTests(unittest.TestCase):
+    """Test snapshot caching and stale threshold logic."""
+
+    def test_network_error_caches_previous_data(self) -> None:
+        previous = [
+            ProviderSnapshot(
+                name="Claude", ok=True, source="api", data={"session_percent_left": 75}
+            ),
+        ]
+        fresh = [
+            ProviderSnapshot(
+                name="Claude", ok=False, source="api", error="Network error: host unreachable"
+            ),
+        ]
+        merged = _merge_with_previous(previous, fresh)
+        self.assertEqual(len(merged), 1)
+        self.assertTrue(merged[0].ok)
+        self.assertEqual(merged[0].data, {"session_percent_left": 75})
+        self.assertIn("cached", merged[0].source)
+        self.assertIsNotNone(merged[0].cached_since)
+
+    def test_stale_data_replaced_after_threshold(self) -> None:
+        from datetime import datetime, timedelta
+
+        stale_time = datetime.now() - timedelta(seconds=STALE_THRESHOLD_SECONDS + 60)
+        previous = [
+            ProviderSnapshot(
+                name="Claude",
+                ok=True,
+                source="api (cached)",
+                data={"session_percent_left": 75},
+                cached_since=stale_time,
+            ),
+        ]
+        fresh = [
+            ProviderSnapshot(
+                name="Claude", ok=False, source="api", error="Network error: host unreachable"
+            ),
+        ]
+        merged = _merge_with_previous(previous, fresh)
+        self.assertEqual(len(merged), 1)
+        self.assertFalse(merged[0].ok)
+        self.assertTrue(merged[0].error.startswith("stale"))
+
+    def test_cached_source_not_doubled(self) -> None:
+        from datetime import datetime, timedelta
+
+        previous = [
+            ProviderSnapshot(
+                name="Claude",
+                ok=True,
+                source="api (cached)",
+                data={"session_percent_left": 75},
+                cached_since=datetime.now() - timedelta(seconds=30),
+            ),
+        ]
+        fresh = [
+            ProviderSnapshot(name="Claude", ok=False, source="api", error="Network error: blip"),
+        ]
+        merged = _merge_with_previous(previous, fresh)
+        self.assertEqual(merged[0].source, "api (cached)")
+        self.assertNotIn("(cached) (cached)", merged[0].source)
+
+    def test_successful_fetch_clears_cache(self) -> None:
+        from datetime import datetime, timedelta
+
+        previous = [
+            ProviderSnapshot(
+                name="Claude",
+                ok=True,
+                source="api (cached)",
+                data={"session_percent_left": 75},
+                cached_since=datetime.now() - timedelta(seconds=60),
+            ),
+        ]
+        fresh = [
+            ProviderSnapshot(
+                name="Claude", ok=True, source="api", data={"session_percent_left": 80}
+            ),
+        ]
+        merged = _merge_with_previous(previous, fresh)
+        self.assertTrue(merged[0].ok)
+        self.assertEqual(merged[0].data, {"session_percent_left": 80})
+        self.assertNotIn("cached", merged[0].source)
 
 
 if __name__ == "__main__":

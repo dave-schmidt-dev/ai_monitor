@@ -23,6 +23,7 @@ Probes provider APIs directly using locally authenticated credentials — no PTY
 - Shows Cursor included API-spend remaining, reset, and billing-cycle pace
 - Shows Vibe monthly remaining (`month rem`), reset, and billing-cycle pace
 - Shows compact single-line error cards to reduce vertical noise when a provider is unavailable
+- Retains cached usage data during transient network errors with an `(offline Xm)` title indicator; shows a `stale` panel after 5 minutes of continuous failure
 - Supports live keyboard shortcuts (`q` quit, `r` refresh now)
 - Supports `.ai_monitor.json` for provider selection, interval, and threshold configuration
 - Sends one-shot macOS threshold notifications and marks low providers with a `[!]` badge

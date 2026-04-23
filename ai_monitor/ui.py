@@ -514,7 +514,27 @@ def build_provider_panel(
     if below_threshold:
         title_text += " [bold text.red][!][/]"
 
+    # Surface cached/offline status in the panel title
+    if snapshot.ok and snapshot.cached_since:
+        age_sec = max(0, int((now - snapshot.cached_since).total_seconds()))
+        if age_sec < 60:
+            age_str = "<1m"
+        elif age_sec < 3600:
+            age_str = f"{age_sec // 60}m"
+        else:
+            age_str = f"{age_sec // 3600}h"
+        title_text += f" [text.yellow](offline {age_str})[/]"
+
     if not snapshot.ok:
+        # Stale data — distinct from hard errors (yellow, not red)
+        if snapshot.error and snapshot.error.startswith("stale"):
+            body = Text.from_markup(f"[text.yellow]{snapshot.error}[/]")
+            return Panel(
+                body,
+                title=title_text,
+                border_style="text.yellow",
+                padding=(0, 1),
+            )
         if auth_fix_key is not None:
             body = Text.from_markup(
                 f"[text.red]auth error[/] [text.muted]— press [/]"
@@ -562,11 +582,12 @@ def build_provider_panel(
 
     panel_kwargs: dict[str, object] = {
         "title": title_text,
-        "border_style": accent,
+        "border_style": "text.yellow" if snapshot.cached_since else accent,
         "subtitle_align": "left",
         "padding": (0, 1),
     }
-    if cached_badge:
+    # Cached status is shown in the title; subtitle badge is redundant
+    if cached_badge and not snapshot.cached_since:
         panel_kwargs["subtitle"] = f"[{accent}]{cached_badge}[/]"
 
     return Panel(body, **panel_kwargs)

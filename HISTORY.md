@@ -1,5 +1,14 @@
 # History
 
+## 2026-04-23
+
+- **Graceful network error handling**: network blips (DNS failure, connection refused, timeout, HTTP 500/504) no longer wipe provider usage data. Transient error detection now covers `"network error"`, `"timed out"`, `"invalid json"`, `"http 500"`, `"http 504"`, and `"cursor api network error"` in addition to the existing markers.
+- **Offline indicator in panel title**: when cached data is being served during a transient outage, the panel title shows `(offline <1m)` / `(offline 3m)` in yellow text and the panel border switches to yellow.
+- **Stale data threshold**: after 5 minutes of continuous cache (no successful refresh), the cached data is removed and replaced with a yellow `stale — offline for Xm` panel so users aren't misled by outdated numbers.
+- **Source dedup fix**: the `(cached)` suffix in `source` no longer doubles up on repeated transient failures (was `"api (cached) (cached)"`).
+- Subtitle cached badge removed when title already shows offline status (avoids redundancy).
+- 12 new tests covering transient error detection, merge caching, stale threshold, source dedup, and UI rendering for offline/stale panels.
+
 ## 2026-04-21
 
 - **Cursor panel cleanup**: removed the extra `pl <plan>` row from the Cursor card. Cursor still parses `plan_name` from the API payload for JSON/debug visibility, but the TUI now shows only the included API-spend row (`ap`) so the panel stays compact and avoids low-value frame clutter.

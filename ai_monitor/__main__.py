@@ -229,6 +229,9 @@ def collect_snapshots(providers: list[tuple[str, object]], debug: bool) -> list[
     return snapshots
 
 
+STALE_THRESHOLD_SECONDS = 300  # 5 minutes — stop serving cached data after this
+
+
 def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
     if snapshot.ok or not snapshot.error:
         return False
@@ -243,9 +246,15 @@ def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
         "missing current session",
         "data not available yet",
         "http 429",
+        "http 500",
         "http 502",
         "http 503",
+        "http 504",
         "token expired",
+        "network error",
+        "timed out",
+        "invalid json",
+        "cursor api network error",
     )
     return any(marker in message for marker in transient_markers)
 
@@ -259,13 +268,14 @@ def _merge_with_previous(
     for snapshot in fresh:
         prior = previous_by_name.get(snapshot.name)
         if prior and prior.ok and _is_transient_probe_error(snapshot):
-            merged.append(
-                replace(
-                    prior,
-                    source=f"{prior.source} (cached)",
-                    cached_since=prior.cached_since or datetime.now(),
-                )
-            )
+            cached_since = prior.cached_since or datetime.now()
+            stale_seconds = (datetime.now() - cached_since).total_seconds()
+            if stale_seconds >= STALE_THRESHOLD_SECONDS:
+                age_min = int(stale_seconds // 60)
+                merged.append(replace(snapshot, error=f"stale — offline for {age_min}m"))
+                continue
+            source = prior.source if "(cached)" in prior.source else f"{prior.source} (cached)"
+            merged.append(replace(prior, source=source, cached_since=cached_since))
             continue
         if snapshot.ok and snapshot.cached_since is not None:
             merged.append(replace(snapshot, cached_since=None))

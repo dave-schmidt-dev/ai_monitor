@@ -1,5 +1,17 @@
 # History
 
+## 2026-05-19
+
+- **Gemini CLI → Antigravity CLI transition mapped.** Google announced today that `gemini` CLI stops serving Google AI Pro, Ultra, and free OAuth tier on **2026-06-18**. Enterprise and paid API key users keep access. ai_monitor's `GeminiHttpProvider` is unaffected because it talks directly to `cloudcode-pa.googleapis.com/v1internal:retrieveUserQuota` with `~/.gemini/oauth_creds.json` — the announcement deprecates the CLI client, not the backend API.
+- **Antigravity CLI architecture probed.** Installed `Antigravity.app` v2.0.0 via Homebrew cask, signed in once, and traced its real network behavior before uninstalling. Findings worth recording for the future provider port:
+  - Antigravity hits `https://daily-cloudcode-pa.googleapis.com` (Google's daily/staging mirror), not the prod `cloudcode-pa` host. Same backend behavior for `retrieveUserQuota` on both hosts confirmed by direct probe with the existing Gemini OAuth token.
+  - Quota endpoint changed from `:retrieveUserQuota` (returns `buckets[]`) to `:fetchAvailableModels`. Same response field names (`modelId`, `remainingFraction`, `resetTime`) inferred from server error messages and the language server's request log.
+  - OAuth uses a different `client_id` (`1071006060591-tmhssin2h21lcre235vtolojh4g403ep`) and two extra scopes Gemini CLI doesn't request: `cclog` and `experimentsandconfigs`. A Gemini-tier token gets HTTP 403 on `fetchAvailableModels` even though it gets HTTP 200 on `retrieveUserQuota` on the same host.
+  - Tokens are stored encrypted in `~/Library/Application Support/Antigravity/User/globalStorage/state.vscdb`, decrypted via Electron's `safeStorage` with the key in Keychain entry `Antigravity Safe Storage`. No plaintext `~/.antigravity/oauth_creds.json` equivalent.
+  - The `agy` CLI binary `/opt/homebrew/bin/agy` (Homebrew cask v1.23.2) is shipped broken — wrapper points to `Resources/app/bin/antigravity`, but the actual binary is `Contents/MacOS/Antigravity`. The Go `language_server` at `Resources/bin/language_server` is the component that talks to Google's API.
+  - Filesystem conflict: Antigravity writes into `~/.gemini/antigravity{,-ide,-backup}/` alongside Gemini CLI's `~/.gemini/oauth_creds.json`. Matches `google-gemini/gemini-cli#16058`.
+- **Decision: postpone Antigravity provider implementation until upstream stabilizes.** Required signals before reattempting: working `agy` CLI from Homebrew, published per-tier quota numbers, Antigravity moving from `daily-cloudcode-pa` to prod `cloudcode-pa`. See `tasks.md` for the tracking item with the 2026-06-18 deadline.
+
 ## 2026-04-23
 
 - **Graceful network error handling**: network blips (DNS failure, connection refused, timeout, HTTP 500/504) no longer wipe provider usage data. Transient error detection now covers `"network error"`, `"timed out"`, `"invalid json"`, `"http 500"`, `"http 504"`, and `"cursor api network error"` in addition to the existing markers.

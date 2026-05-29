@@ -12,7 +12,9 @@ from rich.console import Console
 from ai_monitor.providers import ProviderSnapshot
 from ai_monitor.ui import (
     THEME,
+    PaceLabel,
     PercentageBar,
+    _compact_pace,
     _format_reset_display,
     _style_for_percent,
     build_dashboard,
@@ -79,6 +81,49 @@ class PercentageBarTests(unittest.TestCase):
         self.assertIn("█", output)
 
 
+class PaceLabelTests(unittest.TestCase):
+    def test_wide_console_renders_full_text(self) -> None:
+        output = _capture(PaceLabel("under +5pt"), width=120)
+        self.assertIn("under +5pt", output)
+        self.assertNotIn("↑", output)
+
+    def test_narrow_console_renders_up_arrow_for_under(self) -> None:
+        output = _capture(PaceLabel("under +5pt"), width=60)
+        self.assertIn("↑5pt", output)
+        self.assertNotIn("under", output)
+
+    def test_narrow_console_renders_down_arrow_for_over(self) -> None:
+        output = _capture(PaceLabel("over -3pt"), width=60)
+        self.assertIn("↓3pt", output)
+        self.assertNotIn("over", output)
+
+    def test_narrow_console_collapses_on_pace_to_equals(self) -> None:
+        output = _capture(PaceLabel("on pace"), width=60)
+        self.assertIn("=", output)
+
+    def test_narrow_console_collapses_na_to_em_dash(self) -> None:
+        output = _capture(PaceLabel("n/a"), width=60)
+        self.assertIn("—", output)
+        self.assertNotIn("n/a", output)
+
+    def test_wide_console_at_boundary_minus_one_still_compacts(self) -> None:
+        # _NARROW_CONSOLE_WIDTH = 93 → width 92 must compact, width 93 must not.
+        narrow = _capture(PaceLabel("under +5pt"), width=92)
+        self.assertIn("↑5pt", narrow)
+        self.assertNotIn("under", narrow)
+        wide = _capture(PaceLabel("under +5pt"), width=93)
+        self.assertIn("under +5pt", wide)
+        self.assertNotIn("↑", wide)
+
+    def test_unknown_pace_text_passes_through_compact(self) -> None:
+        # _compact_pace falls back to the original string for unrecognized input.
+        self.assertEqual(_compact_pace("totally bogus"), "totally bogus")
+        self.assertEqual(_compact_pace(""), "")
+        # And PaceLabel renders that unchanged even when narrow.
+        output = _capture(PaceLabel("totally bogus"), width=60)
+        self.assertIn("totally bogus", output)
+
+
 class ProviderPanelTests(unittest.TestCase):
     def setUp(self) -> None:
         self.now = datetime(2026, 3, 14, 8, 22, 30)
@@ -126,6 +171,8 @@ class ProviderPanelTests(unittest.TestCase):
         snap = ProviderSnapshot(name="Gemini", ok=True, source="cli", data=self.gemini_data)
         output = _capture(build_provider_panel(snap, self.now), width=44)
         self.assertIn("Gemini", output)
+        # Card covers Antigravity (agy), which shares the Gemini quota pool.
+        self.assertIn("Antigravity", output)
         self.assertIn("fl", output)
         self.assertIn("pr", output)
 
@@ -591,6 +638,32 @@ class NarrowTerminalTests(unittest.TestCase):
         )
         output = _capture(build_provider_panel(snap, now), width=30)
         self.assertIn("Codex", output)
+
+    def test_provider_panel_pace_cell_uses_arrow_at_narrow_width(self) -> None:
+        # End-to-end: confirm PaceLabel inside build_provider_panel actually
+        # collapses to arrow notation when rendered at a narrow console width.
+        # 50% remaining on a 5h window with reset 1h away → "under" pace.
+        now = datetime(2026, 3, 14, 8, 22, 30)
+        snap = ProviderSnapshot(
+            name="Codex",
+            ok=True,
+            source="cli",
+            data={
+                "five_hour_percent_left": 50,
+                "five_hour_reset": "Resets 9:22 AM",
+                "weekly_percent_left": 80,
+                "weekly_reset": "Resets Mar 21 at 8:22 AM",
+            },
+        )
+        narrow = _capture(build_provider_panel(snap, now), width=44)
+        # At 44 cols the pace cell must be compacted — no "under"/"over" words.
+        self.assertNotIn("under", narrow)
+        self.assertNotIn("over", narrow)
+        # Either an arrow, equals, or em dash must appear in the pace column.
+        self.assertTrue(
+            any(token in narrow for token in ("↑", "↓", "=", "—")),
+            "Expected compact pace token (arrow/=/—) at narrow width",
+        )
 
     def test_dashboard_single_column_at_narrow_width(self) -> None:
         now = datetime(2026, 3, 14, 8, 22, 30)

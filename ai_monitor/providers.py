@@ -420,20 +420,35 @@ class VibeProvider:
         usage_pct_raw = payload.get("usage_percentage")
         # Mistral returns percentage points already, e.g. 1.08 means 1.08% used.
         usage_percent = round(float(usage_pct_raw), 4) if usage_pct_raw is not None else None
-        reset_at = payload.get("reset_at")
-        if reset_at:
+        reset_raw = payload.get("reset_at")
+        reset_at = reset_raw
+        reset_target: datetime | None = None
+        if reset_raw:
             try:
-                target = datetime.fromisoformat(reset_at.replace("Z", "+00:00"))
-                reset_at = f"Resets {target.astimezone().strftime('%b %d at %I:%M %p')}"
+                reset_target = datetime.fromisoformat(reset_raw.replace("Z", "+00:00"))
+                reset_at = f"Resets {reset_target.astimezone().strftime('%b %d at %I:%M %p')}"
             except ValueError:
                 pass
+
+        # Post-2026-05 rebrand, Mistral dropped start_date/end_date. Vibe billing
+        # is monthly anchored to the 1st UTC, so derive boundaries from reset_at.
+        start_date = payload.get("start_date")
+        end_date = payload.get("end_date")
+        if reset_target is not None:
+            if not end_date:
+                end_date = reset_target.isoformat()
+            if not start_date:
+                cycle_end_utc = reset_target.astimezone(timezone.utc)
+                year = cycle_end_utc.year - (1 if cycle_end_utc.month == 1 else 0)
+                month = 12 if cycle_end_utc.month == 1 else cycle_end_utc.month - 1
+                start_date = datetime(year, month, 1, 0, 0, tzinfo=timezone.utc).isoformat()
 
         return VibeStatus(
             usage_percent=usage_percent,
             reset_at=reset_at,
             payg_enabled=payload.get("payg_enabled"),
-            start_date=payload.get("start_date"),
-            end_date=payload.get("end_date"),
+            start_date=start_date,
+            end_date=end_date,
             raw_text=body,
         )
 
@@ -646,11 +661,7 @@ class CursorProvider:
             except (TypeError, ValueError):
                 pass
 
-        plan_name = (
-            plan_info.get("name")
-            or plan_info.get("planName")
-            or plan_data.get("planName")
-        )
+        plan_name = plan_info.get("name") or plan_info.get("planName") or plan_data.get("planName")
 
         raw_text = json.dumps(
             {"usage": usage_data, "plan": plan_data},

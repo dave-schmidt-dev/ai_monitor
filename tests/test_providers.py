@@ -197,6 +197,72 @@ class VibeProviderTests(unittest.TestCase):
         self.assertEqual(status.start_date, "2026-04-01T00:00:00Z")
         self.assertEqual(status.end_date, "2026-04-30T23:59:59.999Z")
 
+    def test_post_rebrand_response_derives_cycle_boundaries(self) -> None:
+        # 2026-05-28 Le Chat → Vibe rebrand dropped start_date/end_date.
+        rebrand_response = {
+            "usage_percentage": 9.089239716666667,
+            "quota_changed_this_month": False,
+            "payg_enabled": False,
+            "reset_at": "2026-06-01T00:00:00Z",
+        }
+        provider = VibeProvider(".")
+        provider._ory_name = "ory_session_test"
+        provider._ory_value = "token"
+        provider._csrf = "csrf"
+        body = json.dumps(rebrand_response).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            status = provider.fetch()
+        self.assertAlmostEqual(status.usage_percent, 9.0892, places=4)
+        self.assertEqual(status.start_date, "2026-05-01T00:00:00+00:00")
+        self.assertEqual(status.end_date, "2026-06-01T00:00:00+00:00")
+
+    def test_year_rollover_derives_previous_december_start(self) -> None:
+        # reset_at in January should yield start_date = Dec 1 of previous year.
+        rollover_response = {
+            "usage_percentage": 12.5,
+            "payg_enabled": False,
+            "reset_at": "2027-01-01T00:00:00Z",
+        }
+        provider = VibeProvider(".")
+        provider._ory_name = "ory_session_test"
+        provider._ory_value = "token"
+        provider._csrf = "csrf"
+        body = json.dumps(rollover_response).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            status = provider.fetch()
+        self.assertEqual(status.start_date, "2026-12-01T00:00:00+00:00")
+        self.assertEqual(status.end_date, "2027-01-01T00:00:00+00:00")
+
+    def test_missing_reset_at_leaves_boundaries_none(self) -> None:
+        # Without reset_at there is no anchor to derive from — both fields stay None.
+        no_reset_response = {
+            "usage_percentage": 4.2,
+            "payg_enabled": False,
+        }
+        provider = VibeProvider(".")
+        provider._ory_name = "ory_session_test"
+        provider._ory_value = "token"
+        provider._csrf = "csrf"
+        body = json.dumps(no_reset_response).encode("utf-8")
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = body
+        mock_resp.__enter__ = lambda s: s
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        with patch("urllib.request.urlopen", return_value=mock_resp):
+            status = provider.fetch()
+        self.assertAlmostEqual(status.usage_percent, 4.2, places=4)
+        self.assertIsNone(status.start_date)
+        self.assertIsNone(status.end_date)
+        self.assertIsNone(status.reset_at)
+
 
 class CursorProviderTests(unittest.TestCase):
     USAGE_RESPONSE = {

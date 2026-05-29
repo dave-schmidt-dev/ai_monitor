@@ -12,7 +12,7 @@ Probes provider APIs directly using locally authenticated credentials — no PTY
 
 - Monitors Codex usage via the OpenAI usage API
 - Monitors Claude usage via the Anthropic account API
-- Monitors Gemini usage via the Cloud Code internal quota API (OAuth)
+- Monitors Gemini usage via the Cloud Code internal quota API (OAuth); the same card also covers Google Antigravity (`agy`), which shares the Gemini request-quota pool. (Antigravity's premium-model credits — Opus, gpt-oss — are metered separately over a Codeium gRPC path with no probeable REST endpoint; see HISTORY.md 2026-05-23.)
 - Monitors Copilot premium-request usage via the GitHub Copilot internal API
 - Monitors Cursor credit usage via the Cursor Dashboard API
 - Monitors Vibe usage via the Mistral billing API

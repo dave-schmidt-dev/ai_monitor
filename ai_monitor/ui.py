@@ -449,6 +449,17 @@ ACCENT_STYLES: dict[str, str] = {
     "Vibe": "accent.vibe",
 }
 
+# Display-only title overrides. The provider key (used for config, dispatch, and
+# thresholds) stays canonical; only the rendered panel title changes. The Gemini
+# card also covers Antigravity (`agy`): both authenticate with the shared
+# ~/.gemini/oauth_creds.json token and draw from the same per-model Gemini
+# request quota on cloudcode-pa. (Antigravity's premium-model credits — Opus,
+# gpt-oss — are metered separately via a Codeium gRPC path that has no probeable
+# REST endpoint; see HISTORY.md 2026-05-23.)
+DISPLAY_TITLES: dict[str, str] = {
+    "Gemini": "Gemini · Antigravity",
+}
+
 
 # ---------------------------------------------------------------------------
 # Rich renderables
@@ -477,6 +488,42 @@ class PercentageBar:
         if empty > 0:
             bar.append("░" * empty, style="bar.empty")
         yield bar
+
+
+# Below this console width the 2-panel grid can't fit a full 12-char pace cell
+# without truncation. ~46 chars per panel + grid padding ≈ 93.
+_NARROW_CONSOLE_WIDTH = 93
+
+
+def _compact_pace(pace: str) -> str:
+    """Arrow notation for the pace cell when the column gets truncated."""
+    if pace == "n/a":
+        return "—"
+    if pace == "on pace":
+        return "="
+    if pace.startswith("under +"):
+        return "↑" + pace[len("under +") :]
+    if pace.startswith("over -"):
+        return "↓" + pace[len("over -") :]
+    return pace
+
+
+class PaceLabel:
+    """Pace cell that collapses to arrow notation when the terminal is narrow.
+
+    Up arrow = above the expected trend (more remaining than pace predicts).
+    Down arrow = below the expected trend (less remaining than pace predicts).
+    """
+
+    def __init__(self, pace: str) -> None:
+        self.pace = pace
+        self.style = _pace_style(pace)
+
+    def __rich_console__(self, console: Console, options: ConsoleOptions) -> RenderResult:
+        text = self.pace
+        if console.width < _NARROW_CONSOLE_WIDTH or options.max_width < len(text):
+            text = _compact_pace(self.pace)
+        yield Text(text, style=self.style)
 
 
 # ---------------------------------------------------------------------------
@@ -510,7 +557,8 @@ def build_provider_panel(
         usage = snapshot.data.get("usage_percent")
         if isinstance(usage, (int, float)) and (100.0 - float(usage)) < threshold:
             below_threshold = True
-    title_text = f"[bold {accent}]{snapshot.name}[/]"
+    display_name = DISPLAY_TITLES.get(base_name, snapshot.name)
+    title_text = f"[bold {accent}]{display_name}[/]"
     if below_threshold:
         title_text += " [bold text.red][!][/]"
 
@@ -622,7 +670,7 @@ def _add_usage_rows(
             Text(_format_percent_value(percent), style=style),
             PercentageBar(percent, style),
             Text(reset_display, style="text.cyan"),
-            Text(pace, style=_pace_style(pace)),
+            PaceLabel(pace),
         )
 
 
@@ -700,7 +748,7 @@ def _add_copilot_rows(table: Table, data: dict[str, object], now: datetime) -> N
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
-        Text(pace_text, style=_pace_style(pace_text)),
+        PaceLabel(pace_text),
     )
 
 
@@ -730,7 +778,7 @@ def _add_cursor_rows(table: Table, data: dict[str, object], now: datetime) -> No
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
-        Text(pace_text, style=_pace_style(pace_text)),
+        PaceLabel(pace_text),
     )
 
 
@@ -760,7 +808,7 @@ def _add_vibe_rows(table: Table, data: dict[str, object], now: datetime) -> None
         Text(value_text, style=style),
         PercentageBar(percent_left, style),
         Text(reset_display, style="text.cyan"),
-        Text(pace_text, style=_pace_style(pace_text)),
+        PaceLabel(pace_text),
     )
 
 

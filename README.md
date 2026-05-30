@@ -145,7 +145,7 @@ Example:
 - During each timed refresh, the header switches from `refresh XXs` to a single in-place `updating …` state until all providers complete, then resumes the countdown.
 - Live rendering uses the `rich` library's `Live` display with alt-screen mode, eliminating scrollback buffer growth.
 - In live mode, press `q` to quit or `r` to trigger an immediate refresh.
-- Cursor and Vibe try Safari cookie extraction first; Vibe also supports Chrome cookie extraction.
+- Cursor and Vibe try Safari cookie extraction first; Vibe also supports Chrome cookie extraction. Cookies are cached locally at `.cache/<provider>_cookies.json` (gitignored) to survive Safari disk-sync lag and reduce spurious re-auth prompts; the cache is evicted on API 401/403 errors.
 - Providers below threshold show a `[!]` badge and trigger one-shot macOS notifications until they recover above threshold.
 - Vibe uses Mistral's `usage_percentage` field as percent used directly. If Mistral shows `1.08% used`, AI Monitor will render about `99%` remaining after rounding.
 - Cursor reads billing-cycle and usage data from the nested `planUsage` payload and treats `limit` / `remaining` as cents, so `2000` means `$20.00` and `1631` means `$16.31` remaining. The Cursor card intentionally shows that included API-spend bucket as `ap`, and the main `% remaining` uses that cents ratio when present and only falls back to `totalPercentUsed` if Cursor omits the spend fields.

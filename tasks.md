@@ -34,6 +34,7 @@
 - [x] Graceful network error handling: retain cached data during transient outages, show offline in title, stale after 5m.
 - [x] Fix Vibe pace shown as `n/a` after Mistral's 2026-05-27 Le Chat → Vibe rebrand (API dropped `start_date`/`end_date`); derive cycle boundaries client-side from `reset_at` (monthly, anchored to 1st UTC).
 - [x] Add PaceLabel narrow-mode rendering: collapse pace cell to arrow notation (`↑Npt`, `↓Npt`, `=`, `—`) when console width < 93 chars.
+- [x] Fix Cursor/Claude/Vibe spurious re-auth prompts by caching browser cookies locally to survive Safari disk-sync lag.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.
 - [ ] Add system tray / menu bar integration.
 - [ ] Add `--web` mode to serve the dashboard as a local HTML page.

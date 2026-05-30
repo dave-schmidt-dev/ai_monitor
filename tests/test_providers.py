@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import base64
 import json
+import tempfile
+import time
 import unittest
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from ai_monitor.providers import (
@@ -17,6 +21,7 @@ from ai_monitor.providers import (
     VibeProvider,
     _format_reset_time,
     _http_json,
+    _is_jwt_expired,
 )
 
 
@@ -321,6 +326,375 @@ class CursorProviderTests(unittest.TestCase):
         ):
             status = provider.fetch()
         self.assertAlmostEqual(status.credit_percent_left, 95.9, places=1)
+
+
+def _make_jwt(exp_offset_seconds: int) -> str:
+    """Build a fake JWT whose `exp` claim is now + offset (no signature)."""
+    header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+    payload_obj = {"exp": int(time.time()) + exp_offset_seconds}
+    payload = base64.urlsafe_b64encode(json.dumps(payload_obj).encode()).rstrip(b"=").decode()
+    return f"{header}.{payload}."
+
+
+class JwtExpiryTests(unittest.TestCase):
+    def test_unexpired_token(self) -> None:
+        self.assertFalse(_is_jwt_expired(_make_jwt(3600)))
+
+    def test_expired_token(self) -> None:
+        self.assertTrue(_is_jwt_expired(_make_jwt(-3600)))
+
+    def test_within_leeway_treated_as_expired(self) -> None:
+        # leeway is 60s; expiring in 30s counts as expired
+        self.assertTrue(_is_jwt_expired(_make_jwt(30)))
+
+    def test_non_jwt_returns_false(self) -> None:
+        self.assertFalse(_is_jwt_expired("not-a-jwt"))
+
+    def test_jwt_without_exp_returns_false(self) -> None:
+        header = base64.urlsafe_b64encode(b'{"alg":"none"}').rstrip(b"=").decode()
+        payload = base64.urlsafe_b64encode(b"{}").rstrip(b"=").decode()
+        self.assertFalse(_is_jwt_expired(f"{header}.{payload}."))
+
+
+class CursorTokenCacheTests(unittest.TestCase):
+    """Regression: aimonitor must keep working when Safari has lost the cookie."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "cursor_token.json"
+        # Patch class attribute so provider instances use the tempfile.
+        self._patcher = patch.object(CursorProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
+
+    def test_cache_used_when_safari_empty(self) -> None:
+        """If cache has a valid token, Safari is not consulted and no browser opens."""
+        valid_jwt = _make_jwt(3600)
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps({"access_token": valid_jwt, "refresh_token": "rt"}),
+            encoding="utf-8",
+        )
+        with (
+            patch("ai_monitor.providers._read_safari_cookies", return_value={}) as safari,
+            patch("ai_monitor.providers.subprocess.Popen") as popen,
+        ):
+            provider = CursorProvider()
+        self.assertEqual(provider._access_token, valid_jwt)
+        self.assertEqual(provider._refresh_token, "rt")
+        self.assertEqual(provider._token_source, "cache")
+        safari.assert_not_called()
+        popen.assert_not_called()
+
+    def test_expired_cache_falls_back_to_safari(self) -> None:
+        """Expired cached token is ignored; Safari is consulted instead."""
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps({"access_token": _make_jwt(-3600)}),
+            encoding="utf-8",
+        )
+        fresh_jwt = _make_jwt(3600)
+        cookie_value = f"user_x%3A%3A{fresh_jwt}"
+        with patch(
+            "ai_monitor.providers._read_safari_cookies",
+            return_value={"WorkosCursorSessionToken": cookie_value},
+        ):
+            provider = CursorProvider()
+        self.assertEqual(provider._access_token, fresh_jwt)
+        self.assertEqual(provider._token_source, "safari")
+
+    def test_safari_read_writes_cache(self) -> None:
+        """First Safari read persists the token for subsequent runs."""
+        fresh_jwt = _make_jwt(3600)
+        cookie_value = f"user_x%3A%3A{fresh_jwt}"
+        with patch(
+            "ai_monitor.providers._read_safari_cookies",
+            return_value={"WorkosCursorSessionToken": cookie_value},
+        ):
+            CursorProvider()
+        self.assertTrue(self._cache_path.exists())
+        cached = json.loads(self._cache_path.read_text(encoding="utf-8"))
+        self.assertEqual(cached["access_token"], fresh_jwt)
+
+    def test_401_clears_cache(self) -> None:
+        """A rejected token must be evicted so the next startup re-reads from Safari."""
+        import urllib.error as ue
+
+        valid_jwt = _make_jwt(3600)
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(json.dumps({"access_token": valid_jwt}), encoding="utf-8")
+        with patch("ai_monitor.providers._read_safari_cookies", return_value={}):
+            provider = CursorProvider()
+        err = ue.HTTPError("u", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+        with patch.object(provider, "_api_post", side_effect=err):
+            with self.assertRaises(ProbeFailure):
+                provider.fetch()
+        self.assertFalse(self._cache_path.exists())
+
+
+class ClaudeCookieCacheTests(unittest.TestCase):
+    """Same disk-sync-lag fix as Cursor: cache Safari cookies to local file."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "claude_cookies.json"
+        self._patcher = patch.object(ClaudeHttpProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
+
+    def test_cache_used_when_safari_empty(self) -> None:
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps({"sessionKey": "sk", "cf_clearance": "cf", "lastActiveOrg": "org"}),
+            encoding="utf-8",
+        )
+        with (
+            patch("ai_monitor.providers._read_safari_cookies", return_value={}) as safari,
+            patch("ai_monitor.providers.subprocess.Popen") as popen,
+        ):
+            provider = ClaudeHttpProvider()
+        self.assertEqual(provider._session_key, "sk")
+        self.assertEqual(provider._cf_clearance, "cf")
+        self.assertEqual(provider._org_id, "org")
+        safari.assert_not_called()
+        popen.assert_not_called()
+
+    def test_safari_read_writes_cache(self) -> None:
+        with patch(
+            "ai_monitor.providers._read_safari_cookies",
+            return_value={"sessionKey": "sk", "cf_clearance": "cf", "lastActiveOrg": "org"},
+        ):
+            ClaudeHttpProvider()
+        self.assertTrue(self._cache_path.exists())
+        cached = json.loads(self._cache_path.read_text(encoding="utf-8"))
+        self.assertEqual(cached["sessionKey"], "sk")
+        self.assertEqual(cached["lastActiveOrg"], "org")
+
+    def test_403_clears_cache(self) -> None:
+        """cf_clearance can expire fast; a 403 must evict the cache to recover."""
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps({"sessionKey": "sk", "cf_clearance": "cf", "lastActiveOrg": "org"}),
+            encoding="utf-8",
+        )
+        with patch("ai_monitor.providers._read_safari_cookies", return_value={}):
+            provider = ClaudeHttpProvider()
+        with patch(
+            "ai_monitor.providers._http_json",
+            side_effect=ProbeFailure("Claude API returned HTTP 403", ""),
+        ):
+            with self.assertRaises(ProbeFailure):
+                provider.fetch()
+        self.assertFalse(self._cache_path.exists())
+
+
+class VibeCookieCacheTests(unittest.TestCase):
+    """Same disk-sync-lag fix as Cursor: cache Mistral cookies to local file."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "vibe_cookies.json"
+        self._patcher = patch.object(VibeProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
+
+    def test_cache_used_when_safari_and_chrome_empty(self) -> None:
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps(
+                {"ory_session_name": "ory_session_x", "ory_session_value": "v", "csrftoken": "c"}
+            ),
+            encoding="utf-8",
+        )
+        with (
+            patch.object(VibeProvider, "_extract_safari_cookies", return_value=None) as safari,
+            patch.object(VibeProvider, "_extract_chrome_cookies", return_value=None) as chrome,
+            patch("ai_monitor.providers.subprocess.Popen") as popen,
+        ):
+            provider = VibeProvider(project_root=self._tmpdir.name)
+        self.assertEqual(provider._ory_name, "ory_session_x")
+        self.assertEqual(provider._ory_value, "v")
+        self.assertEqual(provider._csrf, "c")
+        safari.assert_not_called()
+        chrome.assert_not_called()
+        popen.assert_not_called()
+
+    def test_safari_read_writes_cache(self) -> None:
+        with patch.object(
+            VibeProvider,
+            "_extract_safari_cookies",
+            return_value={
+                "ory_session_name": "ory_session_x",
+                "ory_session_value": "v",
+                "csrftoken": "c",
+            },
+        ):
+            VibeProvider(project_root=self._tmpdir.name)
+        self.assertTrue(self._cache_path.exists())
+        cached = json.loads(self._cache_path.read_text(encoding="utf-8"))
+        self.assertEqual(cached["ory_session_name"], "ory_session_x")
+        self.assertEqual(cached["csrftoken"], "c")
+
+    def test_401_clears_cache(self) -> None:
+        import urllib.error as ue
+
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps(
+                {"ory_session_name": "ory_session_x", "ory_session_value": "v", "csrftoken": "c"}
+            ),
+            encoding="utf-8",
+        )
+        with (
+            patch.object(VibeProvider, "_extract_safari_cookies", return_value=None),
+            patch.object(VibeProvider, "_extract_chrome_cookies", return_value=None),
+        ):
+            provider = VibeProvider(project_root=self._tmpdir.name)
+        err = ue.HTTPError("u", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+        with patch("urllib.request.urlopen", side_effect=err):
+            with self.assertRaises(ProbeFailure):
+                provider.fetch()
+        self.assertFalse(self._cache_path.exists())
+
+
+class CacheResilienceTests(unittest.TestCase):
+    """Edge-cases: corrupted cache files and write failures must not break providers."""
+
+    def setUp(self) -> None:
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cursor_cache = Path(self._tmpdir.name) / "cursor_token.json"
+        self._claude_cache = Path(self._tmpdir.name) / "claude_cookies.json"
+        self._vibe_cache = Path(self._tmpdir.name) / "vibe_cookies.json"
+        self._patchers = [
+            patch.object(CursorProvider, "_CACHE_PATH", self._cursor_cache),
+            patch.object(ClaudeHttpProvider, "_CACHE_PATH", self._claude_cache),
+            patch.object(VibeProvider, "_CACHE_PATH", self._vibe_cache),
+        ]
+        for p in self._patchers:
+            p.start()
+
+    def tearDown(self) -> None:
+        for p in self._patchers:
+            p.stop()
+        self._tmpdir.cleanup()
+
+    def test_cursor_corrupted_cache_falls_back_to_safari(self) -> None:
+        """Garbage JSON in cursor cache is silently ignored; Safari is consulted."""
+        self._cursor_cache.parent.mkdir(parents=True, exist_ok=True)
+        self._cursor_cache.write_text("{ NOT VALID JSON !!!", encoding="utf-8")
+        fresh_jwt = _make_jwt(3600)
+        cookie_value = f"user_x%3A%3A{fresh_jwt}"
+        with patch(
+            "ai_monitor.providers._read_safari_cookies",
+            return_value={"WorkosCursorSessionToken": cookie_value},
+        ):
+            provider = CursorProvider()
+        self.assertEqual(provider._access_token, fresh_jwt)
+        self.assertEqual(provider._token_source, "safari")
+
+    def test_claude_corrupted_cache_falls_back_to_safari(self) -> None:
+        """Garbage JSON in Claude cache is silently ignored; Safari is consulted."""
+        self._claude_cache.parent.mkdir(parents=True, exist_ok=True)
+        self._claude_cache.write_text("{ NOT VALID JSON !!!", encoding="utf-8")
+        with patch(
+            "ai_monitor.providers._read_safari_cookies",
+            return_value={"sessionKey": "sk", "cf_clearance": "cf", "lastActiveOrg": "org"},
+        ):
+            provider = ClaudeHttpProvider()
+        self.assertEqual(provider._session_key, "sk")
+        self.assertEqual(provider._org_id, "org")
+
+    def test_vibe_corrupted_cache_falls_back_to_safari(self) -> None:
+        """Garbage JSON in Vibe cache is silently ignored; Safari is consulted."""
+        self._vibe_cache.parent.mkdir(parents=True, exist_ok=True)
+        self._vibe_cache.write_text("{ NOT VALID JSON !!!", encoding="utf-8")
+        with patch.object(
+            VibeProvider,
+            "_extract_safari_cookies",
+            return_value={
+                "ory_session_name": "ory_session_x",
+                "ory_session_value": "v",
+                "csrftoken": "c",
+            },
+        ):
+            provider = VibeProvider(project_root=self._tmpdir.name)
+        self.assertEqual(provider._ory_name, "ory_session_x")
+
+    def test_cursor_save_cache_oserror_does_not_break_provider(self) -> None:
+        """If writing the cache raises OSError, the provider still has a valid token."""
+        fresh_jwt = _make_jwt(3600)
+        cookie_value = f"user_x%3A%3A{fresh_jwt}"
+        with (
+            patch(
+                "ai_monitor.providers._read_safari_cookies",
+                return_value={"WorkosCursorSessionToken": cookie_value},
+            ),
+            patch("pathlib.Path.mkdir", side_effect=OSError("no space")),
+        ):
+            provider = CursorProvider()
+        self.assertEqual(provider._access_token, fresh_jwt)
+
+    def test_cursor_refresh_writes_new_refresh_token_to_cache(self) -> None:
+        """After a token refresh, the updated refresh_token must be persisted."""
+        import urllib.error as ue
+
+        valid_jwt = _make_jwt(3600)
+        self._cursor_cache.parent.mkdir(parents=True, exist_ok=True)
+        self._cursor_cache.write_text(
+            json.dumps({"access_token": valid_jwt, "refresh_token": "old_rt"}),
+            encoding="utf-8",
+        )
+        with patch("ai_monitor.providers._read_safari_cookies", return_value={}):
+            provider = CursorProvider()
+
+        # Simulate: first API call → 401, refresh succeeds with new tokens, retry succeeds
+        first_err = ue.HTTPError("u", 401, "Unauthorized", {}, None)  # type: ignore[arg-type]
+
+        new_jwt = _make_jwt(7200)
+        refresh_body = json.dumps({"access_token": new_jwt, "refresh_token": "new_rt"}).encode()
+        mock_refresh_resp = MagicMock()
+        mock_refresh_resp.read.return_value = refresh_body
+        mock_refresh_resp.__enter__ = lambda s: s
+        mock_refresh_resp.__exit__ = MagicMock(return_value=False)
+
+        usage_resp = {
+            "billingCycleStart": 1775994366000,
+            "billingCycleEnd": 1778586366000,
+            "planUsage": {"totalPercentUsed": 4.1},
+        }
+        plan_resp = {"planInfo": {"name": "pro"}}
+
+        call_count = 0
+
+        def api_post_side_effect(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise first_err
+            elif call_count == 2:
+                return usage_resp
+            else:
+                return plan_resp
+
+        with (
+            patch.object(provider, "_api_post", side_effect=api_post_side_effect),
+            patch("urllib.request.urlopen", return_value=mock_refresh_resp),
+        ):
+            provider.fetch()
+
+        # Cache must now contain the new refresh token
+        cached = json.loads(self._cursor_cache.read_text(encoding="utf-8"))
+        self.assertEqual(cached["access_token"], new_jwt)
+        self.assertEqual(cached["refresh_token"], "new_rt")
 
 
 class CodexHttpProviderTests(unittest.TestCase):

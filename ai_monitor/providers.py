@@ -92,6 +92,26 @@ def _write_debug_dump(name: str, raw_text: str) -> None:
     _debug_dump_path(name).write_text(raw_text, encoding="utf-8")
 
 
+def _is_jwt_expired(token: str, leeway_seconds: int = 60) -> bool:
+    """Best-effort check: True if a JWT's `exp` claim is in the past (with leeway)."""
+    import base64
+    import time
+
+    try:
+        payload_b64 = token.split(".")[1]
+    except IndexError:
+        return False  # not a JWT, let the API decide
+    padded = payload_b64 + "=" * (-len(payload_b64) % 4)
+    try:
+        payload = json.loads(base64.urlsafe_b64decode(padded))
+    except (ValueError, json.JSONDecodeError):
+        return False
+    exp = payload.get("exp")
+    if not isinstance(exp, (int, float)):
+        return False
+    return time.time() + leeway_seconds >= exp
+
+
 def _read_safari_cookies(host_filter: str) -> dict[str, str]:
     """Parse Safari's Cookies.binarycookies file, return cookies matching host_filter.
 
@@ -178,6 +198,9 @@ class VibeProvider:
 
     COOKIE_FILENAME = ".mistral_cookies.json"
     API_URL = "https://console.mistral.ai/api/billing/v2/vibe-usage"
+    # See CursorProvider._CACHE_PATH for the rationale: browser cookie files lag
+    # behind in-memory state, so we persist the cookies after a successful read.
+    _CACHE_PATH = Path(__file__).resolve().parent.parent / ".cache" / "vibe_cookies.json"
 
     def __init__(self, project_root: str) -> None:
         self._project_root = project_root
@@ -189,6 +212,8 @@ class VibeProvider:
 
     def _load_cookies(self) -> None:
         """Try all cookie sources. Opens browser on first failure."""
+        if self._load_from_cache():
+            return
         cookies = self._extract_safari_cookies() or self._extract_chrome_cookies()
         if cookies is None:
             cookie_path = Path(self._project_root) / self.COOKIE_FILENAME
@@ -198,6 +223,7 @@ class VibeProvider:
             self._ory_name = cookies["ory_session_name"]
             self._ory_value = cookies["ory_session_value"]
             self._csrf = cookies["csrftoken"]
+            self._save_to_cache()
         elif not self._browser_opened:
             # Open console.mistral.ai so the user can log in
             try:
@@ -209,6 +235,55 @@ class VibeProvider:
             except OSError:
                 pass
             self._browser_opened = True
+
+    def _load_from_cache(self) -> bool:
+        """Load cookies from local cache. Returns True if a usable set was loaded."""
+        if not self._CACHE_PATH.exists():
+            return False
+        try:
+            data = json.loads(self._CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        ory_name = data.get("ory_session_name")
+        ory_value = data.get("ory_session_value")
+        csrf = data.get("csrftoken")
+        if not (
+            isinstance(ory_name, str)
+            and ory_name
+            and isinstance(ory_value, str)
+            and ory_value
+            and isinstance(csrf, str)
+            and csrf
+        ):
+            return False
+        self._ory_name = ory_name
+        self._ory_value = ory_value
+        self._csrf = csrf
+        return True
+
+    def _save_to_cache(self) -> None:
+        """Persist current cookies to local cache."""
+        if not (self._ory_name and self._ory_value and self._csrf):
+            return
+        try:
+            self._CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "ory_session_name": self._ory_name,
+                "ory_session_value": self._ory_value,
+                "csrftoken": self._csrf,
+                "cached_at": datetime.now().isoformat(),
+            }
+            self._CACHE_PATH.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            log.warning("Failed to write Vibe cookie cache: %s", exc)
+
+    def _clear_cache(self) -> None:
+        """Remove the local cookie cache (call when cookies are rejected by the API)."""
+        try:
+            self._CACHE_PATH.unlink(missing_ok=True)
+        except OSError as exc:
+            # Surfaced because a stuck cache file means the next 401 won't recover.
+            log.warning("Failed to delete cookie cache at %s: %s", self._CACHE_PATH, exc)
 
     @property
     def _has_cookies(self) -> bool:
@@ -402,8 +477,9 @@ class VibeProvider:
                 body = resp.read().decode("utf-8")
         except urllib.error.HTTPError as exc:
             if exc.code in (301, 302, 401, 403):
-                # Session expired — clear cookies so next fetch retries extraction
+                # Cookies rejected — invalidate cache so next fetch re-reads from Safari/Chrome
                 self._ory_name = self._ory_value = self._csrf = ""
+                self._clear_cache()
                 raise ProbeFailure(
                     "Mistral session expired. Log into console.mistral.ai to refresh.",
                     f"HTTP {exc.code}",
@@ -468,6 +544,10 @@ class CursorProvider:
         / "globalStorage"
         / "state.vscdb"
     )
+    # Safari's Cookies.binarycookies file lags behind Safari's in-memory state, so
+    # we persist the token after a successful Safari/DB read. This way we keep
+    # working across Safari restarts, ITP cookie purges, and disk-flush delays.
+    _CACHE_PATH = Path(__file__).resolve().parent.parent / ".cache" / "cursor_token.json"
     _USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
     _PLAN_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetPlanInfo"
     _TOKEN_URL = "https://api2.cursor.sh/oauth/token"
@@ -477,19 +557,29 @@ class CursorProvider:
         self._access_token: str | None = None
         self._refresh_token: str | None = None
         self._browser_opened = False
+        self._token_source: str | None = None
         self._load_token()
 
     def _load_token(self) -> None:
         """Try all token sources. Opens browser on first failure."""
-        # Try Safari cookie first (WorkosCursorSessionToken = userId::jwt)
+        # Try local cache first — survives Safari restarts and ITP cookie purges
+        if self._load_from_cache():
+            self._token_source = "cache"
+            return
+
+        # Try Safari cookie (WorkosCursorSessionToken = userId::jwt)
         token = self._extract_token_from_safari()
         if token:
             self._access_token = token
+            self._token_source = "safari"
+            self._save_to_cache()
             return
 
         # Fall back to Cursor Desktop's local SQLite database
         self._load_from_desktop_db()
         if self._access_token:
+            self._token_source = "desktop_db"
+            self._save_to_cache()
             return
 
         # No token found — open browser so user can log in
@@ -503,6 +593,48 @@ class CursorProvider:
             except OSError:
                 pass
             self._browser_opened = True
+
+    def _load_from_cache(self) -> bool:
+        """Load tokens from local cache. Returns True if a usable token was loaded."""
+        if not self._CACHE_PATH.exists():
+            return False
+        try:
+            data = json.loads(self._CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        access = data.get("access_token")
+        if not isinstance(access, str) or not access:
+            return False
+        if _is_jwt_expired(access):
+            return False
+        self._access_token = access
+        refresh = data.get("refresh_token")
+        if isinstance(refresh, str) and refresh:
+            self._refresh_token = refresh
+        return True
+
+    def _save_to_cache(self) -> None:
+        """Persist current tokens to local cache."""
+        if not self._access_token:
+            return
+        try:
+            self._CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "access_token": self._access_token,
+                "refresh_token": self._refresh_token,
+                "cached_at": datetime.now().isoformat(),
+            }
+            self._CACHE_PATH.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            log.warning("Failed to write Cursor token cache: %s", exc)
+
+    def _clear_cache(self) -> None:
+        """Remove the local token cache (call when the cached token is rejected)."""
+        try:
+            self._CACHE_PATH.unlink(missing_ok=True)
+        except OSError as exc:
+            # Surfaced because a stuck cache file means the next 401 won't recover.
+            log.warning("Failed to delete cookie cache at %s: %s", self._CACHE_PATH, exc)
 
     def _extract_token_from_safari(self) -> str | None:
         """Extract access token from Safari's WorkosCursorSessionToken cookie."""
@@ -563,8 +695,9 @@ class CursorProvider:
                 self._do_token_refresh(_ur, _ue)
                 usage_data = self._api_post(_ur, _ue, self._USAGE_URL)
             elif exc.code == 401:
-                # Token expired, no refresh token — clear so next fetch retries
+                # Token rejected — invalidate cache so next fetch re-reads from Safari
                 self._access_token = None
+                self._clear_cache()
                 raise ProbeFailure(
                     "Cursor session expired. Log into cursor.com to refresh.",
                     f"HTTP {exc.code}",
@@ -724,6 +857,10 @@ class CursorProvider:
             new_token = body.get("access_token")
             if new_token:
                 self._access_token = new_token
+                new_refresh = body.get("refresh_token")
+                if isinstance(new_refresh, str) and new_refresh:
+                    self._refresh_token = new_refresh
+                self._save_to_cache()
                 log.debug("Cursor access token refreshed successfully")
             else:
                 log.warning("Cursor token refresh response missing access_token")
@@ -926,6 +1063,9 @@ class ClaudeHttpProvider:
     """Fetch Claude usage via claude.ai API using Safari browser cookies."""
 
     _BASE_URL = "https://claude.ai"
+    # See CursorProvider._CACHE_PATH for the rationale: Safari's binarycookies file
+    # lags behind its in-memory state, so we persist cookies across runs.
+    _CACHE_PATH = Path(__file__).resolve().parent.parent / ".cache" / "claude_cookies.json"
 
     def __init__(self) -> None:
         self._session_key: str = ""
@@ -935,21 +1075,69 @@ class ClaudeHttpProvider:
         self._load_cookies()
 
     def _load_cookies(self) -> None:
+        if self._load_from_cache():
+            return
         cookies = _read_safari_cookies("claude")
         self._session_key = cookies.get("sessionKey", "")
         self._cf_clearance = cookies.get("cf_clearance", "")
         self._org_id = cookies.get("lastActiveOrg", "")
+        if self._session_key and self._org_id:
+            self._save_to_cache()
+        elif not self._browser_opened:
+            try:
+                subprocess.Popen(
+                    ["open", "https://claude.ai"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            except OSError:
+                pass
+            self._browser_opened = True
+
+    def _load_from_cache(self) -> bool:
+        """Load cookies from local cache. Returns True if a usable set was loaded."""
+        if not self._CACHE_PATH.exists():
+            return False
+        try:
+            data = json.loads(self._CACHE_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return False
+        session_key = data.get("sessionKey")
+        org_id = data.get("lastActiveOrg")
+        if not (
+            isinstance(session_key, str) and session_key and isinstance(org_id, str) and org_id
+        ):
+            return False
+        self._session_key = session_key
+        self._org_id = org_id
+        cf = data.get("cf_clearance")
+        if isinstance(cf, str):
+            self._cf_clearance = cf
+        return True
+
+    def _save_to_cache(self) -> None:
+        """Persist current cookies to local cache."""
         if not (self._session_key and self._org_id):
-            if not self._browser_opened:
-                try:
-                    subprocess.Popen(
-                        ["open", "https://claude.ai"],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                    )
-                except OSError:
-                    pass
-                self._browser_opened = True
+            return
+        try:
+            self._CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+            payload = {
+                "sessionKey": self._session_key,
+                "cf_clearance": self._cf_clearance,
+                "lastActiveOrg": self._org_id,
+                "cached_at": datetime.now().isoformat(),
+            }
+            self._CACHE_PATH.write_text(json.dumps(payload), encoding="utf-8")
+        except OSError as exc:
+            log.warning("Failed to write Claude cookie cache: %s", exc)
+
+    def _clear_cache(self) -> None:
+        """Remove the local cookie cache (call when cookies are rejected by the API)."""
+        try:
+            self._CACHE_PATH.unlink(missing_ok=True)
+        except OSError as exc:
+            # Surfaced because a stuck cache file means the next 401 won't recover.
+            log.warning("Failed to delete cookie cache at %s: %s", self._CACHE_PATH, exc)
 
     @property
     def _has_cookies(self) -> bool:
@@ -987,7 +1175,9 @@ class ClaudeHttpProvider:
         except ProbeFailure as exc:
             msg = str(exc)
             if "HTTP 401" in msg or "HTTP 403" in msg:
+                # Cookies rejected — invalidate cache so next fetch re-reads from Safari
                 self._session_key = self._cf_clearance = self._org_id = ""
+                self._clear_cache()
                 raise ProbeFailure(
                     "Claude session expired — visit claude.ai to refresh",
                     msg,

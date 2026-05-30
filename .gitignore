@@ -14,6 +14,7 @@ build/
 /plans
 .mistral_cookies.json
 .ai_monitor.json
+.cache/
 .aider.chat.history.md
 .github/
 .superpowers/

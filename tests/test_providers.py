@@ -186,6 +186,18 @@ class VibeProviderTests(unittest.TestCase):
         "vibe": {"models": {}},
     }
 
+    def setUp(self) -> None:
+        # Isolate _CACHE_PATH so constructing VibeProvider can't overwrite the
+        # repo's real .cache/vibe_cookies.json with whatever cookies Safari holds.
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "vibe_cookies.json"
+        self._patcher = patch.object(VibeProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
+
     def test_usage_percentage_is_not_scaled_again(self) -> None:
         provider = VibeProvider(".")
         provider._ory_name = "ory_session_test"
@@ -288,6 +300,18 @@ class CursorProviderTests(unittest.TestCase):
             "name": "pro",
         }
     }
+
+    def setUp(self) -> None:
+        # Isolate _CACHE_PATH so constructing CursorProvider can't overwrite the
+        # repo's real .cache/cursor_token.json with whatever JWT Safari holds.
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "cursor_token.json"
+        self._patcher = patch.object(CursorProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
 
     def test_cursor_nested_plan_usage_mapping(self) -> None:
         provider = CursorProvider()
@@ -492,6 +516,28 @@ class ClaudeCookieCacheTests(unittest.TestCase):
             with self.assertRaises(ProbeFailure):
                 provider.fetch()
         self.assertFalse(self._cache_path.exists())
+
+    def test_400_clears_cache(self) -> None:
+        # Regression for the 2026-05-30 cache-poison bug: a cached lastActiveOrg
+        # that is not a valid UUID makes Claude return HTTP 400 (invalid_request_error)
+        # rather than 401/403, so without 400 in the eviction set the poison is sticky.
+        self._cache_path.parent.mkdir(parents=True, exist_ok=True)
+        self._cache_path.write_text(
+            json.dumps(
+                {"sessionKey": "sk-ant-test", "cf_clearance": "cf_test", "lastActiveOrg": "org-123"}
+            ),
+            encoding="utf-8",
+        )
+        with patch("ai_monitor.providers._read_safari_cookies", return_value={}):
+            provider = ClaudeHttpProvider()
+        with patch(
+            "ai_monitor.providers._http_json",
+            side_effect=ProbeFailure("HTTP 400", ""),
+        ):
+            with self.assertRaises(ProbeFailure) as ctx:
+                provider.fetch()
+        self.assertFalse(self._cache_path.exists())
+        self.assertIn("session expired", str(ctx.exception).lower())
 
 
 class VibeCookieCacheTests(unittest.TestCase):
@@ -750,6 +796,21 @@ class ClaudeHttpProviderTests(unittest.TestCase):
         "seven_day": {"utilization": 45.0, "resets_at": "2026-04-21T00:00:00Z"},
         "seven_day_opus": {"utilization": 10.0, "resets_at": "2026-04-21T00:00:00Z"},
     }
+
+    def setUp(self) -> None:
+        # Isolate _CACHE_PATH: _make_provider mocks _read_safari_cookies with fixture
+        # values, and without this isolation the constructor would write those fixtures
+        # straight to the repo's real .cache/claude_cookies.json — which is exactly how
+        # the 2026-05-30 weekend cache work landed sk-ant-test/org-123 in production
+        # and produced HTTP 400 from Claude's UUID validator.
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self._cache_path = Path(self._tmpdir.name) / "claude_cookies.json"
+        self._patcher = patch.object(ClaudeHttpProvider, "_CACHE_PATH", self._cache_path)
+        self._patcher.start()
+
+    def tearDown(self) -> None:
+        self._patcher.stop()
+        self._tmpdir.cleanup()
 
     def _make_provider(self) -> ClaudeHttpProvider:
         cookies = {

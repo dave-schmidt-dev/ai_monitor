@@ -1174,8 +1174,11 @@ class ClaudeHttpProvider:
             )
         except ProbeFailure as exc:
             msg = str(exc)
-            if "HTTP 401" in msg or "HTTP 403" in msg:
-                # Cookies rejected — invalidate cache so next fetch re-reads from Safari
+            # 400 is included because Claude's path validator returns invalid_request_error
+            # (not 401/403) when lastActiveOrg in the cookie cache is not a valid UUID — the
+            # 2026-05-30 cache-poison scenario. Treating it as a cookie problem evicts the
+            # bad cache so the next probe re-reads from Safari.
+            if "HTTP 400" in msg or "HTTP 401" in msg or "HTTP 403" in msg:
                 self._session_key = self._cf_clearance = self._org_id = ""
                 self._clear_cache()
                 raise ProbeFailure(

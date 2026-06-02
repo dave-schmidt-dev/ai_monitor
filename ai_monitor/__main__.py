@@ -49,13 +49,14 @@ AUTH_ACTIONS: dict[str, tuple[str, str]] = {
 
 _AUTH_KEYWORDS = (
     "auth",
+    "credentials",
     "login",
     "authenticate",
-    "credentials",
     "re-authenticate",
-    "token expired",
+    "session expired",
     "sign in",
     "sign-in",
+    "token expired",
 )
 
 

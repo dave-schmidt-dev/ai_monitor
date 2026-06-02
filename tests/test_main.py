@@ -205,6 +205,9 @@ class DashboardNoANSILeakageTests(unittest.TestCase):
 
 
 class IsAuthErrorTests(unittest.TestCase):
+    # Contrived messages below exercise the keyword-match mechanism. Verbatim
+    # production messages are pinned in ProductionAuthMessageRoutingTests further
+    # down — keep both: this set tests the matcher, the other tests the wiring.
     def test_auth_keyword_with_known_provider(self) -> None:
         snap = ProviderSnapshot(
             name="Claude",
@@ -249,6 +252,44 @@ class IsAuthErrorTests(unittest.TestCase):
     def test_all_six_providers_in_auth_actions(self) -> None:
         expected = {"Claude", "Codex", "Gemini", "Copilot", "Cursor", "Vibe"}
         self.assertEqual(set(AUTH_ACTIONS.keys()), expected)
+
+
+class ProductionAuthMessageRoutingTests(unittest.TestCase):
+    # These tests pin the verbatim error strings emitted by providers.py so the
+    # CTA wiring catches any silent drift between provider wording and the
+    # _AUTH_KEYWORDS substring set. Latent for ~2 months before this sweep: all
+    # three session-expired messages below were missing every keyword and the
+    # dashboard quietly skipped the [N] fix action for these providers.
+
+    def test_claude_session_expired_routes_to_cta(self) -> None:
+        # ai_monitor/providers.py:1182
+        snap = ProviderSnapshot(
+            name="Claude",
+            ok=False,
+            source="api",
+            error="Claude session expired — visit claude.ai to refresh",
+        )
+        self.assertTrue(_is_auth_error(snap))
+
+    def test_cursor_session_expired_routes_to_cta(self) -> None:
+        # ai_monitor/providers.py:702
+        snap = ProviderSnapshot(
+            name="Cursor",
+            ok=False,
+            source="api",
+            error="Cursor session expired. Log into cursor.com to refresh.",
+        )
+        self.assertTrue(_is_auth_error(snap))
+
+    def test_vibe_session_expired_routes_to_cta(self) -> None:
+        # ai_monitor/providers.py:484 — provider name "Vibe" per AUTH_ACTIONS
+        snap = ProviderSnapshot(
+            name="Vibe",
+            ok=False,
+            source="api",
+            error="Mistral session expired. Log into console.mistral.ai to refresh.",
+        )
+        self.assertTrue(_is_auth_error(snap))
 
 
 class BuildFixActionsTests(unittest.TestCase):

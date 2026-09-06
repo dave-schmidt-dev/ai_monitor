@@ -278,11 +278,10 @@ Setup is three steps and no shell script:
    nested agent through `SMAppService`; if macOS holds it, the same panel says so and
    offers **Open Login Items Settings**.
 3. When a Safari-backed provider first needs a credential, Settings shows
-   *Full Disk Access is denied* with **Reveal Credential Bridge** followed by **Open Full
-   Disk Access Settings**. Grant FDA to the revealed
-   `Gradus.app/Contents/Helpers/GradusCredentialBridge.app` — **granting it to `Gradus.app`
-   itself does nothing**, because the grant is per-executable and the bridge is a separately
-   identified nested app (INV-6).
+   *Full Disk Access is denied* with **Reveal Gradus App** followed by **Open Full
+   Disk Access Settings**. Grant FDA to the revealed `/Applications/Gradus.app` once.
+   macOS attributes the bundled refresh agent and nested bridge to that outer signed app;
+   adding the nested helper produces a grant the installed refresh path does not consume (INV-6).
 
 The agent holds its own `~/Library/Application Support/Gradus/Installed/.refresh-agent.lock`
 while it runs the bridge and then the frozen producer, each under its own bounded deadline,
@@ -352,8 +351,10 @@ completes and the agent supervises publishing directly.
 app that reads Safari's cookie jar and atomically refreshes the local caches for the remaining
 browser-backed providers at mode `0600` inside a `0700` cache directory; Python only consumes
 those caches. Claude, OpenCode Go, and Cursor are Keychain-backed and have no Safari path at
-all. Do not grant Full Disk Access to the repository Python, its virtual environment, the
-launchd wrapper, `Gradus.app`, or the agent — only the bridge.
+all. For the normal bundled path, grant Full Disk Access only to the outer `Gradus.app`, which
+macOS treats as the responsible TCC identity for its agent and nested bridge. Do not grant it to
+the repository Python, its virtual environment, the launchd wrapper, or the agent executable.
+The standalone legacy bridge retains its own separate grant when that rollback path is used.
 
 Because macOS can invalidate an app-only TCC approval when the installed bundle is replaced,
 finish bridge code changes and their automated tests before installing; install and approve the
@@ -811,7 +812,7 @@ these cannot run in the VM and must run on the host against a real profile:
 |---|---|---|
 | CloudKit | `com.apple.developer.icloud-services`, `com.apple.developer.icloud-container-identifiers` | No `iCloud.com.zerodelta.gradus` container access; CloudKit calls fail rather than sync |
 | Push notifications | `com.apple.developer.aps-environment` | No APNs registration; remote-notification paths are unreachable |
-| Full Disk Access (`GradusCredentialBridge`) | TCC grant, keyed to the signature | An ad-hoc bridge is a different signing identity than the host's approved copy, so it holds no FDA grant and cannot read provider credential files |
+| Full Disk Access (`Gradus.app` bundled path; standalone bridge for legacy rollback) | TCC grant, keyed to the signed responsible bundle | An ad-hoc build is a different signing identity than the host's approved copy, so it holds no FDA grant and cannot read provider credential files |
 
 For `GradusMac` the first two are already absent from Debug builds on the host,
 so the VM loses no coverage the host had; the entitlements files

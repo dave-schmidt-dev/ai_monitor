@@ -45,7 +45,7 @@ struct BackgroundAgentRegistrationTests {
         BackgroundAgentManager(
             service: service,
             statusFileURL: URL(fileURLWithPath: "/nonexistent/agent-status.json"),
-            bridgeURL: URL(fileURLWithPath: "/nonexistent/GradusCredentialBridge.app"),
+            fullDiskAccessTargetURL: URL(fileURLWithPath: "/nonexistent/Gradus.app"),
             now: { agentFixedNow },
             openURL: { _ in },
             revealInFinder: { _ in }
@@ -89,13 +89,13 @@ struct BackgroundAgentRegistrationTests {
     }
 
     @MainActor
-    @Test func revealingTheBridgeHappensBeforeOpeningTheSettingsPane() {
+    @Test func revealingGradusHappensBeforeOpeningTheSettingsPane() {
         var events: [String] = []
         let service = FakeBackgroundAgentService(registration: .enabled)
         let manager = BackgroundAgentManager(
             service: service,
             statusFileURL: URL(fileURLWithPath: "/nonexistent/agent-status.json"),
-            bridgeURL: URL(fileURLWithPath: "/fixture/GradusCredentialBridge.app"),
+            fullDiskAccessTargetURL: URL(fileURLWithPath: "/Applications/Gradus.app"),
             now: { agentFixedNow },
             openURL: { events.append("open:\($0.absoluteString)") },
             revealInFinder: { events.append("reveal:\($0.lastPathComponent)") }
@@ -106,7 +106,7 @@ struct BackgroundAgentRegistrationTests {
         }
 
         #expect(events == [
-            "reveal:GradusCredentialBridge.app",
+            "reveal:Gradus.app",
             "open:\(BackgroundAgentManager.fullDiskAccessSettingsURL.absoluteString)"
         ])
     }
@@ -118,7 +118,7 @@ struct BackgroundAgentRegistrationTests {
         let manager = BackgroundAgentManager(
             service: service,
             statusFileURL: URL(fileURLWithPath: "/nonexistent/agent-status.json"),
-            bridgeURL: URL(fileURLWithPath: "/nonexistent/GradusCredentialBridge.app"),
+            fullDiskAccessTargetURL: URL(fileURLWithPath: "/nonexistent/Gradus.app"),
             now: { agentFixedNow },
             openURL: { opened.append($0) },
             revealInFinder: { _ in }
@@ -195,17 +195,17 @@ struct BackgroundAgentStateTests {
         #expect(state == .degraded(nil))
         #expect(state.explanation.lowercased().contains("credential bridge"))
         #expect(!state.claimsCurrentData)
-        #expect(state.recoveryActions.first == .revealCredentialBridge)
+        #expect(state.recoveryActions.first == .revealGradusApp)
     }
 
-    @Test func fullDiskAccessDenialRevealsTheBridgeFirst() {
+    @Test func fullDiskAccessDenialRevealsGradusFirst() {
         let state = resolve(providers: [
             provider("Vibe", error: "bridge denied: Full Disk Access is required")
         ])
 
         #expect(state == .fullDiskAccessDenied)
-        #expect(state.recoveryActions == [.revealCredentialBridge, .openFullDiskAccessSettings])
-        #expect(state.explanation.contains("Reveal the bridge first"))
+        #expect(state.recoveryActions == [.revealGradusApp, .openFullDiskAccessSettings])
+        #expect(state.explanation.contains("Reveal Gradus App first"))
     }
 
     @Test func providerAuthenticationIsNamedPerProviderAndSorted() {
@@ -310,11 +310,16 @@ struct BackgroundAgentDefaultPathTests {
         #expect(snapshot.path.hasSuffix("Library/Application Support/Gradus/Installed/snapshot-v2.json"))
     }
 
-    /// The reveal affordance has to point at the bridge inside *this* bundle,
-    /// because a user cannot find a nested helper on their own.
-    @Test func credentialBridgeIsResolvedInsideTheRunningBundle() {
-        let bridge = BackgroundAgentManager.defaultCredentialBridgeURL
-        #expect(bridge.path.hasPrefix(Bundle.main.bundleURL.path))
-        #expect(bridge.path.hasSuffix("Contents/Helpers/GradusCredentialBridge.app"))
+    /// TCC attributes bundled helpers to the outer running app, so the reveal
+    /// affordance must select that exact app rather than its nested bridge.
+    @Test func fullDiskAccessGrantResolvesToTheRunningApp() {
+        #expect(BackgroundAgentManager.defaultFullDiskAccessTargetURL == Bundle.main.bundleURL)
+    }
+
+    @Test func fullDiskAccessRecoveryActionUsesTheOuterAppName() {
+        let action = BackgroundAgentRecovery.revealGradusApp
+
+        #expect(action.title == "Reveal Gradus App")
+        #expect(action.id == "Reveal Gradus App")
     }
 }

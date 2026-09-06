@@ -106,7 +106,7 @@ public enum BackgroundAgentState: Equatable, Sendable {
 public enum BackgroundAgentRecovery: Equatable, Sendable, Identifiable {
     case enableMonitoring
     case openLoginItemsSettings
-    case revealCredentialBridge
+    case revealGradusApp
     case openFullDiskAccessSettings
     case reinstallApp
 
@@ -118,7 +118,7 @@ public enum BackgroundAgentRecovery: Equatable, Sendable, Identifiable {
         switch self {
         case .enableMonitoring: "Turn On Monitor in Background"
         case .openLoginItemsSettings: "Open Login Items Settings"
-        case .revealCredentialBridge: "Reveal Credential Bridge"
+        case .revealGradusApp: "Reveal Gradus App"
         case .openFullDiskAccessSettings: "Open Full Disk Access Settings"
         case .reinstallApp: "Reinstall Gradus"
         }
@@ -157,8 +157,8 @@ public extension BackgroundAgentState {
                 ? "This usually takes under two minutes."
                 : "The agent reported this on its last run."
         case .fullDiskAccessDenied:
-            "The credential bridge cannot read Safari's cookie store. Reveal the bridge first, then add that "
-                + "exact app to Full Disk Access — adding Gradus itself will not grant it."
+            "The credential bridge cannot read Safari's cookie store. Reveal Gradus App first, then add that "
+                + "exact app to Full Disk Access. macOS assigns the bundled helper's access to Gradus."
         case let .providerAuthRequired(providers):
             "\(Self.list(providers)) has no usable session. Sign in again where that provider authenticates: "
                 + "its own CLI, or Safari for Vibe. Gradus never asks for the credential itself."
@@ -180,9 +180,8 @@ public extension BackgroundAgentState {
         case .notFound: [.reinstallApp]
         case .refreshing: []
         // Reveal first, deliberately: the Full Disk Access pane needs the user
-        // to drag in the nested bridge, and there is no way to find a helper
-        // inside a bundle from that pane alone.
-        case .fullDiskAccessDenied: [.revealCredentialBridge, .openFullDiskAccessSettings]
+        // to add the outer app that macOS attributes the bundled helper to.
+        case .fullDiskAccessDenied: [.revealGradusApp, .openFullDiskAccessSettings]
         // Signing in happens in the provider's own tool or in Safari; a button
         // here could only explain, and a button that only explains reads as a
         // fix that does nothing. The explanation carries the instruction.
@@ -191,7 +190,7 @@ public extension BackgroundAgentState {
             switch bridge {
             // An agent that predates the typed outcome: the pre-existing best
             // guess, since denial was the only bridge failure ever seen.
-            case nil, .denied: [.revealCredentialBridge, .openFullDiskAccessSettings]
+            case nil, .denied: [.revealGradusApp, .openFullDiskAccessSettings]
             case .success, .missing, .malformed, .failed, .timedOut: []
             }
         case .stale: [.openLoginItemsSettings]

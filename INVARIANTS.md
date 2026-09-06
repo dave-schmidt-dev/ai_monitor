@@ -97,9 +97,11 @@ rationale: Safari-derived provider cookies are read only by the Developer-ID-sig
   generic-password items read-only with no refresh or write-back.
   Python providers consume the allowlisted bridge caches only; neither they,
   GradusMac, GradusRefreshAgent, the frozen runtime packaging, nor the launchd wrapper may read Safari, Chrome,
-  Desktop databases, or a credential file fallback. Full Disk Access remains confined to the nested bridge rather
-  than the UI, agent, Python runtime, or shell wrapper. Codex auth.json and debug dumps retain the Python private-write
-  helper. The counted bridge gate proves fixed operations, typed recovery, structural isolation, parser allowlists,
+  Desktop databases, or a credential file fallback. In the normal bundled path, macOS attributes the nested bridge's
+  protected-file read to the outer `Gradus.app`, so Full Disk Access is granted once to that responsible bundle. The
+  source boundary remains narrower than the TCC identity: only the nested bridge contains Safari-reading code, and
+  the UI, agent, Python runtime, and shell wrapper never receive cookie material. Codex auth.json and debug dumps
+  retain the Python private-write helper. The counted bridge gate proves fixed operations, typed recovery, structural isolation, parser allowlists,
   nested identity/embedding, payload boundaries, and file modes; provider
   tests tripwire prohibited browser paths, and `tests/test_snapshot.py::RuntimePathPolicyTests` rejects
   aliasing between public state and private caches. Prevents private browser state from becoming available to
@@ -115,8 +117,8 @@ rationale: Safari-derived provider cookies are read only by the Developer-ID-sig
   the expected Team ID, and the hardened runtime, and that the bridge holds no entitlement of its
   own. `exportArchive` does not sign what a run script copies in, so signing walks an explicit
   inventory deepest-first and never relies on `codesign --deep`, which remains verification-only.
-  Full Disk Access is granted to the nested bridge alone; granting it to `Gradus.app` does not
-  reach the bridge, because the grant is per-executable.
+  The Settings recovery flow reveals the running outer `Gradus.app`, matching the installed TCC attribution; revealing
+  or granting the nested helper creates a separate-looking UI entry that the bundled refresh path does not consume.
   The standalone `~/Applications/GradusCredentialBridge.app` installed by
   `app/install-credential-bridge.sh` is retained for one release as the rollback shape only, and
   holds its own separate TCC grant.

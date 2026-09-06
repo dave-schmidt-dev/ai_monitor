@@ -22,7 +22,7 @@ struct BackgroundAgentBridgeOutcomeTests {
         )
 
         #expect(state == .fullDiskAccessDenied)
-        #expect(state.recoveryActions == [.revealCredentialBridge, .openFullDiskAccessSettings])
+        #expect(state.recoveryActions == [.revealGradusApp, .openFullDiskAccessSettings])
     }
 
     @Test func aDeniedBridgeIsNamedEvenWhenNoProviderComplains() {

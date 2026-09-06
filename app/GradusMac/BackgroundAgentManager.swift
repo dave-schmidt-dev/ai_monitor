@@ -119,14 +119,14 @@ public final class SMAppServiceBackgroundAgent: BackgroundAgentServicing {
 public final class BackgroundAgentManager {
     private let service: BackgroundAgentServicing
     private let statusFileURL: URL
-    private let bridgeURL: URL
+    private let fullDiskAccessTargetURL: URL
     private let now: () -> Date
     private let openURL: (URL) -> Void
     private let revealInFinder: (URL) -> Void
 
     /// The pane deep link. `x-apple.systempreferences:` is the only supported
     /// way in; there is no API that adds an app to Full Disk Access, which is
-    /// exactly why `Reveal Credential Bridge` has to come first.
+    /// exactly why `Reveal Gradus App` has to come first.
     public static let fullDiskAccessSettingsURL = URL(
         string: "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles"
     )!
@@ -137,14 +137,14 @@ public final class BackgroundAgentManager {
     public init(
         service: BackgroundAgentServicing = SMAppServiceBackgroundAgent(),
         statusFileURL: URL = BackgroundAgentManager.defaultStatusFileURL,
-        bridgeURL: URL = BackgroundAgentManager.defaultCredentialBridgeURL,
+        fullDiskAccessTargetURL: URL = BackgroundAgentManager.defaultFullDiskAccessTargetURL,
         now: @escaping () -> Date = Date.init,
         openURL: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) },
         revealInFinder: @escaping (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
     ) {
         self.service = service
         self.statusFileURL = statusFileURL
-        self.bridgeURL = bridgeURL
+        self.fullDiskAccessTargetURL = fullDiskAccessTargetURL
         self.now = now
         self.openURL = openURL
         self.revealInFinder = revealInFinder
@@ -157,13 +157,12 @@ public final class BackgroundAgentManager {
         PublishPipeline.agentStatusPath(for: PublishPipeline.defaultSnapshotPath)
     }
 
-    /// The nested bridge inside this bundle. Resolved from `Bundle.main` rather
-    /// than a literal so a relocated or renamed wrapper still reveals the right
-    /// helper -- the whole point of the affordance is that the user cannot find
-    /// it themselves.
-    public nonisolated static var defaultCredentialBridgeURL: URL {
+    /// The outer running app that macOS uses as the TCC identity for bundled
+    /// helpers. Live TCC attribution resolves both the refresh agent and nested
+    /// bridge to this bundle, so revealing the helper itself produces a grant
+    /// that the protected Safari read never consumes.
+    public nonisolated static var defaultFullDiskAccessTargetURL: URL {
         Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/GradusCredentialBridge.app", isDirectory: true)
     }
 
     public var registration: BackgroundAgentRegistration {
@@ -218,8 +217,8 @@ public final class BackgroundAgentManager {
             setMonitoringEnabled(true)
         case .openLoginItemsSettings:
             openURL(Self.loginItemsSettingsURL)
-        case .revealCredentialBridge:
-            revealInFinder(bridgeURL)
+        case .revealGradusApp:
+            revealInFinder(fullDiskAccessTargetURL)
         case .openFullDiskAccessSettings:
             openURL(Self.fullDiskAccessSettingsURL)
         case .reinstallApp:

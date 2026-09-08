@@ -15,7 +15,8 @@ import Testing
 // that a later success clears it.
 //
 // `liveLifecycleNeedsRetry` is deliberately not that signal -- it schedules
-// retries and no view reads it. The last test here pins that they are distinct.
+// retries and no view reads it. Nothing here pins that separation; it is a note
+// for the next reader, not a guard.
 
 private struct ThrowingCloudFetcher: CloudFetcher {
     func fetchAll() async throws -> [ProviderStatus] {

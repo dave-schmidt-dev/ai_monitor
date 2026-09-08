@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import datetime
 import getpass
 import json
 import math
 import subprocess
-from typing import Any
+from typing import Any, NamedTuple
 
 from ..parsing import ClaudeStatus
 from . import _base
@@ -15,6 +16,29 @@ from ._base import (
     _format_reset_time,
     register,
 )
+
+
+def _epoch_ms(value: Any) -> float | None:
+    """Coerce a keychain timestamp to epoch milliseconds, or None if unusable."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) else None
+
+
+class _KeychainCredential(NamedTuple):
+    """Claude Code's cached OAuth grant, minus anything that must not be logged.
+
+    `expires_at` / `refresh_expires_at` are epoch milliseconds as Claude Code
+    writes them, or None when the payload omits them.
+    """
+
+    access_token: str
+    expires_at: float | None
+    refresh_expires_at: float | None
 
 
 @register("Claude")
@@ -31,16 +55,57 @@ class ClaudeHttpProvider:
             raise ProbeFailure("auth required: no cached credentials", "")
         if not self._access_token:
             try:
-                self._access_token = self._load_keychain_access_token()
+                credential = self._load_keychain_credential()
             except FileNotFoundError as exc:
                 raise ProbeFailure(
                     "Claude Code OAuth credentials unavailable: run `claude auth login`",
                     "",
                 ) from exc
+            self._reject_if_only_stale(credential)
+            self._access_token = credential.access_token
+
+    @staticmethod
+    def _reject_if_only_stale(credential: _KeychainCredential) -> None:
+        """Fail transiently when the cached token is merely stale, not revoked.
+
+        Claude Code refreshes this keychain item lazily -- observed 2026-09-08,
+        a token expired at 13:00:05 and was not rewritten until ~13:19 while
+        Claude Code was in continuous use. Sending the stale token earns a 401,
+        which is indistinguishable at the HTTP layer from a revoked grant, so
+        the probe used to tell David to run `claude auth login` for a session
+        that was never signed out. With a live refresh token the honest report
+        is "wait", and the wording deliberately avoids every substring the Swift
+        auth classifiers key on (`session expired`, `re-authenticate`,
+        ``login` ``, `auth required`) so the menu does not raise a sign-in
+        banner for a grant that needs no sign-in.
+
+        Gradus does not perform the refresh itself: the refresh token rotates
+        on use (same observation -- its hash changed across the refresh), so a
+        third-party consumer that minted a token without writing the successor
+        back would revoke Claude Code's own login.
+        """
+        expires_at = credential.expires_at
+        if expires_at is None:
+            return
+        now_ms = datetime.datetime.now().timestamp() * 1000
+        if expires_at > now_ms:
+            return
+        refresh_expires_at = credential.refresh_expires_at
+        if refresh_expires_at is not None and refresh_expires_at <= now_ms:
+            # Nothing left to refresh from: this one really is a sign-in.
+            raise ProbeFailure(
+                "Claude Code session expired: run `claude auth login`",
+                "",
+            )
+        stamp = datetime.datetime.fromtimestamp(expires_at / 1000).strftime("%-I:%M %p")
+        raise ProbeFailure(
+            f"Claude Code token went stale at {stamp}; Claude Code refreshes it on next use",
+            "",
+        )
 
     @classmethod
-    def _load_keychain_access_token(cls) -> str:
-        """Read Claude Code's OAuth token without persisting or logging it."""
+    def _load_keychain_credential(cls) -> _KeychainCredential:
+        """Read Claude Code's OAuth grant without persisting or logging it."""
         try:
             result = subprocess.run(
                 [
@@ -73,7 +138,11 @@ class ClaudeHttpProvider:
             raise FileNotFoundError(
                 "Claude Code OAuth credentials unavailable: run `claude auth login`"
             )
-        return token.strip()
+        return _KeychainCredential(
+            access_token=token.strip(),
+            expires_at=_epoch_ms(oauth.get("expiresAt")),
+            refresh_expires_at=_epoch_ms(oauth.get("refreshTokenExpiresAt")),
+        )
 
     def fetch(self) -> ClaudeStatus:
         self._acquire()

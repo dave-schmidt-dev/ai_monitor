@@ -1739,25 +1739,98 @@ class ClaudeHttpProviderTests(unittest.TestCase):
             ),
         )
         with patch("gradus.providers.claude.subprocess.run", return_value=keychain) as run:
-            token = ClaudeHttpProvider._load_keychain_access_token()
+            credential = ClaudeHttpProvider._load_keychain_credential()
 
-        self.assertEqual(token, "test-oauth-token")
+        self.assertEqual(credential.access_token, "test-oauth-token")
         args = run.call_args.args[0]
         self.assertEqual(args[:3], ["security", "find-generic-password", "-w"])
         self.assertIn("Claude Code-credentials", args)
         self.assertNotIn("test-oauth-token", args)
 
+    def _keychain(self, **oauth: object) -> MagicMock:
+        payload = {"accessToken": "test-oauth-token", **oauth}
+        return MagicMock(returncode=0, stdout=json.dumps({"claudeAiOauth": payload}))
+
+    def test_stale_access_token_is_reported_as_transient_not_a_sign_in(self) -> None:
+        """A refreshable grant must not be reported as needing `claude auth login`.
+
+        Observed 2026-09-08: Claude Code refreshes its keychain item lazily, so
+        the cached token can sit expired for ~19 minutes while Claude Code is in
+        active use. The old probe sent it, took a 401, and told David to sign in
+        to a session he had never left.
+        """
+        now_ms = datetime.now().timestamp() * 1000
+        keychain = self._keychain(
+            expiresAt=now_ms - 60_000,
+            refreshTokenExpiresAt=now_ms + 30 * 86_400_000,
+        )
+        with patch("gradus.providers.claude.subprocess.run", return_value=keychain):
+            with patch("gradus.providers.claude._base._http_json") as http:
+                with self.assertRaises(ProbeFailure) as ctx:
+                    ClaudeHttpProvider().fetch()
+
+        # The stale token is never spent: no request, so no 401 to misread.
+        http.assert_not_called()
+        message = str(ctx.exception).lower()
+        self.assertIn("refreshes it on next use", message)
+        for classifier_substring in (
+            "session expired",
+            "re-authenticate",
+            "login`",
+            "auth required",
+            "session unavailable",
+            "authorization denied",
+        ):
+            self.assertNotIn(classifier_substring, message)
+
+    def test_expired_refresh_token_is_still_a_real_sign_in(self) -> None:
+        """With nothing left to refresh from, `claude auth login` is the right call."""
+        now_ms = datetime.now().timestamp() * 1000
+        keychain = self._keychain(
+            expiresAt=now_ms - 60_000,
+            refreshTokenExpiresAt=now_ms - 30_000,
+        )
+        with patch("gradus.providers.claude.subprocess.run", return_value=keychain):
+            with self.assertRaises(ProbeFailure) as ctx:
+                ClaudeHttpProvider().fetch()
+        self.assertIn("session expired", str(ctx.exception))
+
+    def test_live_access_token_is_used_without_a_staleness_veto(self) -> None:
+        now_ms = datetime.now().timestamp() * 1000
+        keychain = self._keychain(
+            expiresAt=now_ms + 3_600_000,
+            refreshTokenExpiresAt=now_ms + 30 * 86_400_000,
+        )
+        with patch("gradus.providers.claude.subprocess.run", return_value=keychain):
+            with patch(
+                "gradus.providers.claude._base._http_json",
+                return_value=self.NORMAL_RESPONSE,
+            ) as http:
+                status = ClaudeHttpProvider().fetch()
+        http.assert_called_once()
+        self.assertEqual(status.session_percent_left, 70.0)
+
+    def test_missing_expiry_falls_back_to_trying_the_token(self) -> None:
+        """An older payload without `expiresAt` keeps the pre-2026-09-08 behavior."""
+        with patch("gradus.providers.claude.subprocess.run", return_value=self._keychain()):
+            with patch(
+                "gradus.providers.claude._base._http_json",
+                return_value=self.NORMAL_RESPONSE,
+            ) as http:
+                ClaudeHttpProvider().fetch()
+        http.assert_called_once()
+
     def test_invalid_keychain_payload_fails_closed(self) -> None:
         keychain = MagicMock(returncode=0, stdout=json.dumps({"sessionKey": "legacy"}))
         with patch("gradus.providers.claude.subprocess.run", return_value=keychain):
             with self.assertRaises(FileNotFoundError):
-                ClaudeHttpProvider._load_keychain_access_token()
+                ClaudeHttpProvider._load_keychain_credential()
 
     def test_keychain_failure_does_not_expose_command_output(self) -> None:
         keychain = MagicMock(returncode=1, stdout="secret-adjacent-output")
         with patch("gradus.providers.claude.subprocess.run", return_value=keychain):
             with self.assertRaises(FileNotFoundError) as ctx:
-                ClaudeHttpProvider._load_keychain_access_token()
+                ClaudeHttpProvider._load_keychain_credential()
         self.assertNotIn("secret-adjacent-output", str(ctx.exception))
 
     def test_headless_acquire_never_reads_keychain(self) -> None:
@@ -1858,7 +1931,7 @@ class ClaudeHttpProviderTests(unittest.TestCase):
         provider = ClaudeHttpProvider()
         with patch.object(
             ClaudeHttpProvider,
-            "_load_keychain_access_token",
+            "_load_keychain_credential",
             side_effect=FileNotFoundError("credential helper unavailable"),
         ):
             snapshot = fetch_provider_snapshot("Claude", provider, debug=False)
@@ -2651,7 +2724,7 @@ class LazyAcquireContractTests(unittest.TestCase):
         provider = ClaudeHttpProvider()
         with patch.object(
             ClaudeHttpProvider,
-            "_load_keychain_access_token",
+            "_load_keychain_credential",
             side_effect=FileNotFoundError("credential helper unavailable"),
         ):
             snapshot = fetch_provider_snapshot("Claude", provider, debug=False)

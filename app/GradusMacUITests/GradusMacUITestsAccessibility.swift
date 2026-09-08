@@ -282,3 +282,54 @@ extension GradusMacUITests {
         }
     }
 }
+
+extension GradusMacUITests {
+    /// Opens the Settings Display picker and chooses `choice` by name.
+    ///
+    /// The picker is reached by identifier, not by title: the `Form` row renders
+    /// "Menu bar" as a sibling `AXStaticText` and leaves the popup button's own
+    /// `AXTitle` empty, exactly as this harness documents for the Settings
+    /// checkboxes. A press also lands on nothing while a previously chosen menu
+    /// is still dismissing -- probed as the popup's items being absent from the
+    /// tree entirely rather than present under another name -- so the open is
+    /// retried until the menu is actually up.
+    func selectMenuBarDisplay(
+        _ choice: String,
+        in settingsWindow: AXUIElement,
+        of fixture: RunningFixture
+    ) throws {
+        let deadline = Date().addingTimeInterval(10)
+        repeat {
+            let picker = try requiredElement(
+                descendingFrom: settingsWindow,
+                role: kAXPopUpButtonRole as String,
+                identifier: "settings-menu-bar-display"
+            )
+            try performPress(on: picker)
+            if let item = awaitMenuItem(named: choice, of: fixture, timeout: 2) {
+                try performPress(on: item)
+                return
+            }
+        } while Date() < deadline
+        throw HarnessError.failed("Menu bar display picker never offered \(choice)")
+    }
+
+    func awaitMenuItem(
+        named title: String,
+        of fixture: RunningFixture,
+        timeout: TimeInterval
+    ) -> AXUIElement? {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if let item = findElement(
+                descendingFrom: fixture.application,
+                role: kAXMenuItemRole as String,
+                title: title
+            ) {
+                return item
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        } while Date() < deadline
+        return nil
+    }
+}

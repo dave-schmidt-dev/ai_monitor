@@ -286,12 +286,16 @@ struct MenuBarContentRoot: View {
         }
 
         var body: some View {
-            MenuContentView(viewModel: viewModel)
-                // The fixture must leave room for the bottom controls' hit
-                // targets. A 680-point minimum in a 720-point host intermittently
-                // exposed the toggle but clipped its clickable bounds.
-                .frame(minHeight: 760, alignment: .top)
-                .padding(.top, 1)
+            VStack(spacing: 0) {
+                MenuBarBucketLabel(viewModel: viewModel)
+                    .padding(.vertical, 6)
+                MenuContentView(viewModel: viewModel)
+            }
+            // The fixture must leave room for the bottom controls' hit
+            // targets. A 680-point minimum in a 720-point host intermittently
+            // exposed the toggle but clipped its clickable bounds.
+            .frame(minHeight: 760, alignment: .top)
+            .padding(.top, 1)
         }
     }
 #endif

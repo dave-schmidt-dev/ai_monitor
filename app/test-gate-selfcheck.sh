@@ -259,6 +259,8 @@ validate_inv7_staging_contract() {
   [[ "$stage_block" == *'/usr/bin/ditto "$GATE_REPO_ROOT/app/GradusMac/." "$gradus_mac_inv7_source_root"'* ]] || return 1
   [[ "$stage_block" == *'/usr/bin/ditto "$GATE_REPO_ROOT/app/GradusMacTests/__Snapshots__/." "$gradus_mac_snapshot_root"'* ]] || return 1
   [[ "$mac_leg_block" == *'env \
+  TZ="America/New_York" \
+  TEST_RUNNER_TZ="America/New_York" \
   GRADUS_DISABLE_PIPELINE=1 \
   TEST_RUNNER_GRADUS_INV7_SOURCE_ROOT="$gradus_mac_inv7_source_root" \
   TEST_RUNNER_GRADUS_SNAPSHOT_ROOT="$gradus_mac_snapshot_root" \
@@ -791,6 +793,107 @@ COUNTING_LEG_MINIMUMS[2]=100
 assert_counting_leg "GradusMac" emit_out_of_order_magnitudes ||
   fail "record() picked the string-comparison-losing count (20) instead of the numeric max (142)"
 COUNTING_LEG_MINIMUMS[2]="$saved_gradusmac_floor"
+
+validate_static_gate_contract() {
+  local gate_path="$1" static_line first_hermetic_line
+  grep -Fq 'base="${GRADUS_STATIC_BASE:-}"' "$gate_path" || return 1
+  grep -Fq 'diff --name-only -z --diff-filter=ACMR "$base...HEAD"' "$gate_path" || return 1
+  grep -Fq 'diff --name-only -z --diff-filter=ACMR --cached' "$gate_path" || return 1
+  grep -Fq 'ls-files --others --exclude-standard -z' "$gate_path" || return 1
+  grep -Fq 'scripts/check-static-tool-versions.sh' "$gate_path" || return 1
+  grep -Fq 'swiftlint lint --strict --no-cache --force-exclude' "$gate_path" || return 1
+  grep -Fq 'swiftformat --lint --cache ignore --config .swiftformat' "$gate_path" || return 1
+  static_line="$(grep -n '^run_changed_swift_static_checks$' "$gate_path" | cut -d: -f1)"
+  first_hermetic_line="$(grep -n '^echo "==> Hermetic notarization' "$gate_path" | cut -d: -f1)"
+  [[ -n "$static_line" && -n "$first_hermetic_line" && "$static_line" -lt "$first_hermetic_line" ]]
+}
+
+validate_static_gate_contract "$GATE_SCRIPT" ||
+  fail "changed Swift static gate is incomplete or runs after test work"
+
+fake_static_bin="$diagnostic_test_root/fake-static-bin"
+mkdir -p "$fake_static_bin"
+make_fake_static_tools() {
+  local lint_status="$1" format_status="$2" lint_version="$3" omit_lint="${4:-0}"
+  rm -f "$fake_static_bin/swiftlint" "$fake_static_bin/swiftformat" "$fake_static_bin/shellcheck"
+  if [[ "$omit_lint" -eq 0 ]]; then
+    sed "s/@VERSION@/$lint_version/; s/@STATUS@/$lint_status/" >"$fake_static_bin/swiftlint" <<'FAKE'
+#!/usr/bin/env bash
+[[ "${1:-}" == "version" || "${1:-}" == "--version" ]] && { echo @VERSION@; exit 0; }
+exit @STATUS@
+FAKE
+    chmod +x "$fake_static_bin/swiftlint"
+  fi
+  sed "s/@STATUS@/$format_status/" >"$fake_static_bin/swiftformat" <<'FAKE'
+#!/usr/bin/env bash
+[[ "${1:-}" == "--version" ]] && { echo 'SwiftFormat 0.63.0'; exit 0; }
+exit @STATUS@
+FAKE
+  cat >"$fake_static_bin/shellcheck" <<'FAKE'
+#!/usr/bin/env bash
+echo 'ShellCheck 0.11.0'
+FAKE
+  chmod +x "$fake_static_bin/swiftformat" "$fake_static_bin/shellcheck"
+}
+
+expect_failure "missing GRADUS_STATIC_BASE" env -u GRADUS_STATIC_BASE \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+expect_failure "invalid GRADUS_STATIC_BASE" env GRADUS_STATIC_BASE=definitely-not-a-revision \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+
+make_fake_static_tools 0 0 0.65.1
+PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD run_changed_swift_static_checks ||
+  fail "fake successful Swift static checks failed"
+make_fake_static_tools 23 0 0.65.1
+expect_failure "SwiftLint nonzero" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+make_fake_static_tools 0 29 0.65.1
+expect_failure "SwiftFormat nonzero" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+make_fake_static_tools 0 0 9.9.9
+expect_failure "wrong SwiftLint version" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+make_fake_static_tools 0 0 0.65.1 1
+expect_failure "missing SwiftLint" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
+  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+
+validate_timezone_gate_contract() {
+  local gate_path="$1" focused_path="$2" test_path="$3" mac_block
+  mac_block="$(sed -n '/assert_counting_leg "GradusMac"/,/-only-testing:GradusMacTests/p' "$gate_path")"
+  [[ "$mac_block" == *'TZ="America/New_York"'* ]] || return 1
+  [[ "$mac_block" == *'TEST_RUNNER_TZ="America/New_York"'* ]] || return 1
+  grep -Fq 'TZ="$SNAPSHOT_TIME_ZONE"' "$focused_path" || return 1
+  grep -Fq 'TEST_RUNNER_TZ="$SNAPSHOT_TIME_ZONE"' "$focused_path" || return 1
+  grep -Fq 'expected at least ${#selectors[@]}' "$focused_path" || return 1
+  grep -Fq 'GRADUS_EFFECTIVE_TIME_ZONE=' "$focused_path" || return 1
+  grep -Fq 'environment["TZ"] == expected' "$test_path" || return 1
+  grep -Fq 'TimeZone.current.identifier == expected' "$test_path" || return 1
+  ! grep -Eq 'NSTimeZone\.default|TimeZone\.ReferenceType\.default' "$test_path"
+}
+
+validate_timezone_gate_contract \
+  "$GATE_SCRIPT" "$SCRIPT_DIR/test-mac-snapshots.sh" \
+  "$SCRIPT_DIR/GradusMacTests/ProviderListViewSnapshotTests.swift" ||
+  fail "Mac snapshot child-timezone contract is incomplete"
+
+cat >"$fake_static_bin/xcodebuild" <<'FAKE'
+#!/usr/bin/env bash
+[[ "${TZ:-}" == "America/New_York" ]] || exit 41
+[[ "${TEST_RUNNER_TZ:-}" == "America/New_York" ]] || exit 42
+printf 'GRADUS_EFFECTIVE_TIME_ZONE=%s\n' "$TEST_RUNNER_TZ"
+printf 'Test run with %s tests\n' "${FAKE_SNAPSHOT_COUNT:-7}"
+FAKE
+chmod +x "$fake_static_bin/xcodebuild"
+for parent_tz in UTC America/New_York; do
+  TZ="$parent_tz" PATH="$fake_static_bin:/usr/bin:/bin" \
+    GRADUS_MAC_SNAPSHOT_TIMEOUT_SECONDS=10 \
+    bash "$SCRIPT_DIR/test-mac-snapshots.sh" >/dev/null ||
+    fail "focused Mac snapshot runner failed under parent TZ=$parent_tz"
+done
+expect_failure "focused Mac snapshot zero-selector run" env \
+  TZ=UTC PATH="$fake_static_bin:/usr/bin:/bin" FAKE_SNAPSHOT_COUNT=0 \
+  GRADUS_MAC_SNAPSHOT_TIMEOUT_SECONDS=10 \
+  bash "$SCRIPT_DIR/test-mac-snapshots.sh"
 
 if [[ "$failure_count" -ne 0 ]]; then
   echo "FAIL: $failure_count test-gate self-check failure(s)" >&2

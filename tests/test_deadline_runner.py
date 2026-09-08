@@ -331,12 +331,8 @@ class DeadlineEscalationTests(RunnerTestCase):
         # group alive through the whole deadline. The group is escalated and
         # the run is reported as a timeout, NOT as the child's status 3.
         #
-        # This pins the behaviour that `run()`'s trailing
-        # `clock() - started < deadline` branch intends to change but cannot
-        # reach: `_wait_bounded` only returns with the group still present once
-        # `remaining <= 0`, i.e. once the full deadline has already elapsed, so
-        # that comparison is false on every path that gets there. If a future
-        # change makes the branch live, this test is the one that will notice.
+        # This pins the distinction between an ordinary child exit before the
+        # group disappears and a group that survives the full deadline.
         process = FakeProcess(returncodes=[3])
         argv = [
             "--deadline",
@@ -367,19 +363,22 @@ class CleanupConflictTests(RunnerTestCase):
         return path
 
     def test_live_conflict_returns_timeout_without_launching_anything(self) -> None:
-        # `_check_conflicts` calls the module-level `_pid_group_alive` rather
-        # than `run()`'s injected `group_alive`, so liveness here has to be
-        # real. This process group always is.
-        self._write_record(os.getpid(), os.getpgrp())
+        conflict_pgid = 4_000_101
+        self._write_record(4_000_100, conflict_pgid)
         launched: list[Any] = []
+        checked: list[int] = []
+        signals: list[tuple[int, int]] = []
 
         status = runner.run(
             self.argv(),
             popen_factory=lambda *a, **k: launched.append(a) or FakeProcess(),
-            kill_group=lambda _pgid, _sig: True,
+            group_alive=lambda pgid: checked.append(pgid) or True,
+            kill_group=lambda pgid, sig: signals.append((pgid, sig)) or True,
         )
         self.assertEqual(status, runner.TIMEOUT_EXIT)
+        self.assertEqual(checked, [conflict_pgid])
         self.assertEqual(launched, [])
+        self.assertEqual(signals, [])
 
     def test_dead_conflict_is_reaped_and_the_run_proceeds(self) -> None:
         record = self._write_record(4_000_002, 4_000_002)
@@ -399,9 +398,15 @@ class CleanupConflictTests(RunnerTestCase):
     def test_state_file_conflict_blocks_without_scanning_the_parent(self) -> None:
         state_file = self.root / "records" / "snapshot.json"
         state_file.parent.mkdir()
-        state_file.write_text(json.dumps({"pid": 4_000_003, "pgid": 4_000_003, "category": "s"}))
+        conflict_pgid = 4_000_003
+        state_file.write_text(
+            json.dumps({"pid": 4_000_003, "pgid": conflict_pgid, "category": "s"})
+        )
         unrelated = state_file.parent / "cleanup-4000004-4000004.json"
         unrelated.write_text(json.dumps({"pid": 4_000_004, "pgid": 4_000_004, "category": "s"}))
+        checked: list[int] = []
+        launched: list[Any] = []
+        signals: list[tuple[int, int]] = []
 
         argv = [
             "--deadline",
@@ -413,8 +418,16 @@ class CleanupConflictTests(RunnerTestCase):
             "-c",
             "exit 0",
         ]
-        status = runner.run(argv, group_alive=lambda _pgid: True)
+        status = runner.run(
+            argv,
+            popen_factory=lambda *a, **k: launched.append(a) or FakeProcess(),
+            group_alive=lambda pgid: checked.append(pgid) or True,
+            kill_group=lambda pgid, sig: signals.append((pgid, sig)) or True,
+        )
         self.assertEqual(status, runner.TIMEOUT_EXIT)
+        self.assertEqual(checked, [conflict_pgid])
+        self.assertEqual(launched, [])
+        self.assertEqual(signals, [])
         # The unrelated neighbour is application state, not the runner's.
         self.assertTrue(unrelated.exists())
 

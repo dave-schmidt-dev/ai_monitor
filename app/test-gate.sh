@@ -90,7 +90,7 @@ COUNTING_LEG_REPORTERS=(
 # `GradusMacUI` (index 3) is pinned exactly, like index 6: it is a fixed
 # scenario set (menu, required-iCloud, quit lifecycle), so losing one is a lost
 # behavior rather than ordinary churn.
-COUNTING_LEG_MINIMUMS=(95 1000 170 3 15 12 177 3 9 10 12 6 5 5 15 5 5 4 31 12)
+COUNTING_LEG_MINIMUMS=(95 1000 170 4 15 12 177 3 9 10 12 6 5 5 15 5 5 4 31 12)
 COUNTING_LEG_SOURCES=(
   "GradusKit"
   "../tests"
@@ -147,6 +147,73 @@ DENSITY_PAD_SNAPSHOT_TEST_SELECTORS=(
   "GradusiOSTests/densityLargePadPortraitAccessibility5()"
 )
 COUNTING_LEG_RUN_COUNT=0
+
+is_canonical_swift_path() {
+  local path="$1"
+  [[ "$path" == app/*.swift || "$path" == app/**/*.swift ]] || return 1
+  case "$path" in
+    app/build/*|app/GradusKit/.build/*|app/DerivedData/*|app/.build/*|app/Pods/*|app/Carthage/*|app/Packages/*|app/Generated/*|app/*/Generated/*)
+      return 1
+      ;;
+  esac
+}
+
+collect_changed_swift_paths() {
+  local base="$1" path existing candidate_index records_file
+  CHANGED_SWIFT_PATHS=()
+  CHANGED_SWIFT_PATH_COUNT=0
+  records_file="$(mktemp "${TMPDIR:-/private/tmp}/gradus-static-paths.XXXXXX")" || return 1
+  if ! {
+    git -C "$GATE_REPO_ROOT" diff --name-only -z --diff-filter=ACMR "$base...HEAD" --
+    git -C "$GATE_REPO_ROOT" diff --name-only -z --diff-filter=ACMR --cached --
+    git -C "$GATE_REPO_ROOT" diff --name-only -z --diff-filter=ACMR --
+    git -C "$GATE_REPO_ROOT" ls-files --others --exclude-standard -z --
+  } >"$records_file"; then
+    rm -f "$records_file"
+    echo "FAIL: could not enumerate changed Swift paths" >&2
+    return 1
+  fi
+  while IFS= read -r -d '' path; do
+    is_canonical_swift_path "$path" || continue
+    [[ -f "$GATE_REPO_ROOT/$path" ]] || continue
+    existing=0
+    for ((candidate_index = 0; candidate_index < CHANGED_SWIFT_PATH_COUNT; candidate_index++)); do
+      [[ "${CHANGED_SWIFT_PATHS[candidate_index]}" == "$path" ]] && existing=1 && break
+    done
+    if [[ "$existing" -eq 0 ]]; then
+      CHANGED_SWIFT_PATHS[CHANGED_SWIFT_PATH_COUNT]="$path"
+      CHANGED_SWIFT_PATH_COUNT=$((CHANGED_SWIFT_PATH_COUNT + 1))
+    fi
+  done <"$records_file"
+  rm -f "$records_file"
+}
+
+run_changed_swift_static_checks() {
+  local base="${GRADUS_STATIC_BASE:-}"
+  if [[ -z "$base" ]]; then
+    echo "FAIL: GRADUS_STATIC_BASE must name the Git revision used for changed Swift static checks" >&2
+    return 2
+  fi
+  if ! git -C "$GATE_REPO_ROOT" cat-file -e "$base^{commit}" 2>/dev/null; then
+    echo "FAIL: GRADUS_STATIC_BASE is not a valid Git commit: $base" >&2
+    return 2
+  fi
+
+  echo "==> Static preflight: pinned SwiftLint and SwiftFormat versions"
+  "$GATE_REPO_ROOT/scripts/check-static-tool-versions.sh" || return $?
+  collect_changed_swift_paths "$base" || return $?
+  if [[ "$CHANGED_SWIFT_PATH_COUNT" -eq 0 ]]; then
+    echo "    Changed Swift scope is empty; SwiftLint and SwiftFormat have no files to inspect."
+    return 0
+  fi
+
+  echo "==> SwiftLint: $CHANGED_SWIFT_PATH_COUNT changed canonical Swift file(s)"
+  (cd "$GATE_REPO_ROOT" && swiftlint lint --strict --no-cache --force-exclude \
+    --config .swiftlint.yml --baseline .swiftlint-baseline.json "${CHANGED_SWIFT_PATHS[@]}") || return $?
+  echo "==> SwiftFormat lint: $CHANGED_SWIFT_PATH_COUNT changed canonical Swift file(s)"
+  (cd "$GATE_REPO_ROOT" && swiftformat --lint --cache ignore --config .swiftformat \
+    "${CHANGED_SWIFT_PATHS[@]}") || return $?
+}
 
 validate_counting_leg_declarations() {
   local leg_count="${#COUNTING_LEG_NAMES[@]}"
@@ -364,7 +431,7 @@ set -euo pipefail
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --help)
-      echo "Usage: bash test-gate.sh"
+      echo "Usage: GRADUS_STATIC_BASE=<git-commit> bash test-gate.sh"
       exit 0
       ;;
     *)
@@ -379,6 +446,9 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 
 validate_counting_leg_declarations
 validate_density_image_snapshot_selectors
+
+# Fail closed before any test, simulator, or other disruptive gate work.
+run_changed_swift_static_checks
 
 echo "==> Hermetic notarization script behavior tests"
 ./test-notary-scripts.sh
@@ -456,7 +526,7 @@ PINNED_XCODE_VERSION="$(cat .xcode-version)"
 # reap. `flock` is per open-file-description, so a *nested* acquisition is not
 # re-entrant: running this gate underneath an outer `apple-ui-test-lock` hold
 # makes each of those legs wait forever on a lock its own ancestor owns. Run
-# the gate bare -- `caffeinate -disu bash app/test-gate.sh` -- and let the legs
+# the gate bare -- `GRADUS_STATIC_BASE=<git-commit> caffeinate -disu bash app/test-gate.sh` -- and let the legs
 # take the lock themselves.
 APPLE_UI_TEST_LOCK="${APPLE_UI_TEST_LOCK:-$HOME/.agent/bin/apple-ui-test-lock}"
 GRADUS_MAC_TEST_TIMEOUT_SECONDS="${GRADUS_MAC_TEST_TIMEOUT_SECONDS:-600}"
@@ -622,6 +692,8 @@ if [[ ! -d "$gradus_mac_snapshot_root" ]] ||
   exit 1
 fi
 assert_counting_leg "GradusMac" run_with_deadline "$GRADUS_MAC_TEST_TIMEOUT_SECONDS" "GradusMac unit tests" env \
+  TZ="America/New_York" \
+  TEST_RUNNER_TZ="America/New_York" \
   GRADUS_DISABLE_PIPELINE=1 \
   TEST_RUNNER_GRADUS_INV7_SOURCE_ROOT="$gradus_mac_inv7_source_root" \
   TEST_RUNNER_GRADUS_SNAPSHOT_ROOT="$gradus_mac_snapshot_root" \

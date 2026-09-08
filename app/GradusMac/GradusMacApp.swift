@@ -88,8 +88,10 @@ struct GradusMacApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("Gradus", systemImage: "gauge", isInserted: $isMenuBarInserted) {
+        MenuBarExtra(isInserted: $isMenuBarInserted) {
             MenuBarContentRoot(viewModel: PublishPipeline.shared.viewModel)
+        } label: {
+            MenuBarBucketLabel(viewModel: PublishPipeline.shared.viewModel)
         }
         .menuBarExtraStyle(.window)
 
@@ -161,6 +163,7 @@ final class PublishPipeline {
 
     private var coordinator: PublishCoordinator?
     private var watcher: SnapshotWatcher?
+    private var backgroundAgentStatusObserver: BackgroundAgentStatusObserver?
     private var accountMonitor: AccountStatusMonitor?
     private var presenceDirectory: DevicePresenceDirectoryStore?
     private var started = false
@@ -238,6 +241,12 @@ final class PublishPipeline {
         started = true
 
         let snapshotPath = snapshotPath ?? Self.defaultSnapshotPath
+        let statusObserver = makeBackgroundAgentStatusObserver(
+            statusFileURL: Self.agentStatusPath(for: snapshotPath)
+        )
+        backgroundAgentStatusObserver = statusObserver
+        statusObserver.start()
+
         let container = CKContainer(identifier: CloudKitConstants.containerIdentifier)
         let zoneID = CKRecordZone.ID(zoneName: CloudKitConstants.zoneName, ownerName: CKCurrentUserDefaultName)
         let database = CKDatabaseAdapter(database: container.privateCloudDatabase)
@@ -345,5 +354,14 @@ final class PublishPipeline {
                 }
             }
         }
+    }
+
+    /// Agent status only changes the local presentation. In particular, this
+    /// path does not feed the snapshot watcher, start provider collection, or
+    /// publish to CloudKit.
+    private func makeBackgroundAgentStatusObserver(
+        statusFileURL: URL
+    ) -> BackgroundAgentStatusObserver {
+        BackgroundAgentStatusObserver(statusFileURL: statusFileURL, viewModel: viewModel)
     }
 }

@@ -194,10 +194,14 @@ struct SettingsWindowTests {
         #expect(window.title == SettingsWindow.title)
         // A hosting controller that fails to measure its SwiftUI content
         // yields a zero- or near-zero-sized window, which is a window and is
-        // still useless. `MacSettingsView` fixes width at 420 and lets height
-        // follow the form.
+        // still useless. `MacSettingsView` fixes width at 460 and supplies a
+        // scrollable ideal-height viewport.
         #expect(window.frame.width >= 400)
         #expect(window.frame.height > 200)
+        #expect(window.contentLayoutRect.height <= SettingsWindow.contentSize.height)
+        if let visibleHeight = NSScreen.main?.visibleFrame.height {
+            #expect(window.contentLayoutRect.height <= visibleHeight - 40)
+        }
     }
 
     @Test func repeatedRequestsReuseTheSameWindow() {

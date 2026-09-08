@@ -119,6 +119,15 @@ public final class PublisherViewModel: ObservableObject {
         }
     }
 
+    /// What the status item shows. This is a local display preference only;
+    /// it never enters a snapshot or a CloudKit record.
+    @Published var menuBarDisplaySelection: MenuBarDisplaySelection {
+        didSet {
+            defaults.set(menuBarDisplaySelection.storedValue, forKey: Self.menuBarDisplaySelectionKey)
+            advancePresentationRevision()
+        }
+    }
+
     /// Forces the menu's provider subtree to be rebuilt after a device-local
     /// display choice changes. `MenuBarExtra` keeps its window-hosted content
     /// alive while Settings is open; merely updating a child initializer did
@@ -138,6 +147,7 @@ public final class PublisherViewModel: ObservableObject {
     /// runtime, but keeping the names aligned means a reader comparing the two
     /// preference sets sees one concept, not two similar ones.
     static let showExhaustedKey = "showExhausted"
+    static let menuBarDisplaySelectionKey = "menuBarDisplaySelection"
 
     /// Matches `DashboardViewModel.defaultLocalWarningThresholdPercent`. A
     /// different default here would mean the same provider counts as "low" on
@@ -208,6 +218,9 @@ public final class PublisherViewModel: ObservableObject {
         } else {
             showExhausted = true
         }
+        menuBarDisplaySelection = MenuBarDisplaySelection(
+            storedValue: defaults.string(forKey: Self.menuBarDisplaySelectionKey)
+        )
     }
 
     /// Confirms the required iCloud setup from the concrete Continue action.
@@ -237,7 +250,7 @@ public final class PublisherViewModel: ObservableObject {
     /// as 1970 (which would be reported as stale, correctly, but for the wrong
     /// reason) and never as now.
     public var updatedAtDate: Date? {
-        updatedAt.flatMap(ISO8601DateFormatter().date(from:))
+        parseSnapshotISOTimestamp(updatedAt)
     }
 
     /// Recomputes the one state the setup/health UI renders. Called after every

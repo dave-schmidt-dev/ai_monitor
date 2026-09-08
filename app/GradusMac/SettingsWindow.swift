@@ -39,14 +39,11 @@ enum SettingsWindow {
 
     static let title = "Gradus Settings"
 
-    /// Width matches `MacSettingsView`'s own `.frame(width: 420)`. The height
-    /// is the hosting controller's measured `fittingSize` for that width in a
-    /// running app -- not an estimate. Setting it to anything smaller is not a
-    /// clipped window but a *jumping* one: the controller's constraints resize
-    /// it to this height on the first layout pass, so a guess of 600 showed
-    /// the user a window that snapped taller a moment after opening.
-    /// Resizable regardless, so a larger text size stays readable.
-    static let contentSize = NSSize(width: 420, height: 660)
+    /// Width matches `MacSettingsView`. The height is its ideal viewport after
+    /// adding the menu-bar picker. `makeWindow` clamps it to the visible screen;
+    /// the Form scrolls there, keeping every control reachable without a
+    /// first-layout resize.
+    static let contentSize = NSSize(width: 460, height: 700)
 
     @discardableResult
     static func show(viewModel: PublisherViewModel) -> NSWindow {
@@ -98,7 +95,11 @@ enum SettingsWindow {
         // window asks. The result is a window that is genuinely on screen,
         // genuinely visible, and a single point wide -- which is why
         // `SettingsWindowTests` asserts the frame and not just existence.
-        window.setContentSize(Self.contentSize)
+        let visibleHeight = NSScreen.main?.visibleFrame.height ?? Self.contentSize.height
+        let availableHeight = max(320, visibleHeight - 40)
+        window.setContentSize(
+            NSSize(width: Self.contentSize.width, height: min(Self.contentSize.height, availableHeight))
+        )
         window.center()
         Self.window = window
         return window

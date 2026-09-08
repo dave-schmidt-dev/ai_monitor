@@ -106,6 +106,17 @@ struct MacSettingsView: View {
             }
 
             Section("Display") {
+                Picker("Menu bar", selection: $viewModel.menuBarDisplaySelection) {
+                    Label("Gauge", systemImage: "gauge")
+                        .tag(MenuBarDisplaySelection.gauge)
+                    ForEach(viewModel.menuBarBucketChoices) { choice in
+                        Text(choice.title)
+                            .tag(choice.selection)
+                            .disabled(!choice.available)
+                    }
+                }
+                .pickerStyle(.menu)
+                .accessibilityIdentifier("settings-menu-bar-display")
                 Picker("Sort providers by", selection: $viewModel.providerSortOption) {
                     ForEach(ProviderSortOption.allCases) { option in
                         Text(option.title).tag(option)
@@ -113,9 +124,12 @@ struct MacSettingsView: View {
                 }
                 .pickerStyle(.menu)
                 Toggle("Show exhausted", isOn: $viewModel.showExhausted)
-                Text("These display choices apply on this Mac only.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(
+                    "A selected bucket shows its remaining percentage. An asterisk marks stale data; "
+                        + "a dash means unavailable. These choices apply on this Mac only."
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
             }
 
             Section("Warning Threshold") {
@@ -151,8 +165,10 @@ struct MacSettingsView: View {
             }
         }
         .formStyle(.grouped)
+        // Form supplies the scrolling viewport when SettingsWindow has to
+        // shrink below this ideal height for a smaller visible screen.
         .frame(width: 460)
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(idealHeight: 700)
         // Read when Settings opens, not on every snapshot: this is the only
         // screen that renders it, and it costs two `launchctl` calls.
         .onAppear { viewModel.refreshLegacyMigration() }

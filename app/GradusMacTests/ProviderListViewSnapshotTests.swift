@@ -6,6 +6,13 @@ import Testing
 
 private let fixedNow = ISO8601DateFormatter().date(from: "2026-08-02T20:00:00-04:00")!
 
+@Test func providerListViewReportsPinnedTestTimezone() {
+    let expected = "America/New_York"
+    #expect(ProcessInfo.processInfo.environment["TZ"] == expected)
+    #expect(TimeZone.current.identifier == expected)
+    print("GRADUS_EFFECTIVE_TIME_ZONE=\(TimeZone.current.identifier)")
+}
+
 /// `Snapshotting<SwiftUI.View, NSImage>` isn't provided by
 /// swift-snapshot-testing 1.19.4 on macOS (only iOS/tvOS get that
 /// convenience) -- host the view in an `NSHostingView` and use the

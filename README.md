@@ -450,6 +450,7 @@ badges, Settings controls for sorting/visibility, and the shared expected-pace
 redline across the TUI, Mac, and iOS surfaces.
 
 - **GradusMac** — the menu-bar app that ships as `Gradus.app`. It reads the credential-free installed canonical snapshot at `~/Library/Application Support/Gradus/Installed/snapshot-v2.json` — the same file its own nested `GradusRefreshAgent` writes — and publishes provider status to a private CloudKit database (`GradusZone`, one record per provider, last-writer-wins). It never touches `.cache/`, any credential path, or the Documents-backed checkout (INV-7) — its only input is the monitor-owned snapshot copy, threaded through a single injected path dependency. Each publish also carries the Mac's user-visible computer name, short local username, and publish timestamp so iOS can show the connected computer and when it last reported; it never sends an email, serial number, path, or credential. The dropdown shows active providers as name + percentage + usage bar (metadata only where it needs attention), appends the same valid supplemental credit text as iOS and the TUI, and follows with a compact exhausted section — name and earliest reset, one line each. With no provider data, its header says `usage unavailable` rather than claiming all providers are healthy. The menu's Settings… row opens a settings window holding the same device-local display preferences iOS has — sort mode, warning threshold, and Show exhausted — alongside the sync and launch-at-login toggles. That window is an `NSWindow` this app builds itself (`SettingsWindow`) rather than SwiftUI's `Settings` scene: on macOS 26.5.2 `showSettingsWindow:` returns `true` and opens nothing, so the idiomatic route fails silently. See `SettingsWindow.swift` for the measurements.
+- **Menu-bar display:** Settings → Display lets you keep the gauge icon or select one provider bucket, such as Codex / Weekly. The selected percentage is capacity remaining; `*` marks stale data and `—` means unavailable. The selection stays local and updates while the menu is closed. Background collection status is observed separately from snapshots, so completion can clear the collecting message without another provider refresh.
 - A failed CloudKit publish records only the safe operation-level error code/name in the Mac log; record contents, localized error text, and other metadata are deliberately excluded. A successful publish updates local evidence that the CloudKit write completed.
   - **Debug safety:** Debug GradusMac builds do not read the snapshot mirror or contact CloudKit unless launched with `GRADUS_ENABLE_PIPELINE=1`. This keeps hosted `xcodebuild test` runs hermetic even when a command bypasses the Xcode scheme; `app/test-gate.sh` additionally exports `GRADUS_DISABLE_PIPELINE=1` for its Mac leg. Release/distribution builds start the pipeline normally.
 - Provider ordering is defined **once**, in `app/Shared/ProviderRanking.swift`, which is compiled into both app targets. `rankedPartition()` splits active from exhausted before applying any presentation comparator — so no sort mode can pull a depleted provider back among the actionable ones — then tiers each partition errored → attention-needed → normal and sorts by the chosen mode with a deterministic name tie-break. Each app conforms its own model (`ProviderEntry` on the Mac, `ProviderStatus` on iOS) to `RankableProvider`; the Mac recomputes depletion locally because, unlike the CloudKit model, the snapshot model has no stored `isDepleted`. This lives in `Shared/` rather than `GradusKit` deliberately: the rules are device-local presentation, so putting them in the kit would widen its INV-7-governed scope.
@@ -552,7 +553,9 @@ non-blocking tweaks are batched into the next patch release.
 **Current release policy:** `app/release_local_gate.py` binds the readiness
 manifest to both the current source and checked Git tree, streams
 `app/test-gate.sh`, and emits the candidate's local-gate proof only after all
-local app tests pass. `app/prepare-testflight-candidate` then performs
+local app tests pass. Set `GRADUS_STATIC_BASE` to the commit preceding the
+candidate changes when invoking the local gate; it forwards that scope to the
+Swift static checks. `app/prepare-testflight-candidate` then performs
 production archive and signing, and `app/deploy-testflight --attended` performs
 upload, processing, and internal-tester assignment against the Gradus iOS App
 Store Connect record. If an active failed pre-upload candidate belongs to the
@@ -874,7 +877,11 @@ uv run pre-commit install   # installs the pre-commit and pre-push hooks
   containing no Python change still runs it.
 - **release gate**: `app/test-gate.sh` runs the local macOS and simulator app
   automation against candidate-bound source. Physical-device acceptance remains
-  a separate owner gate. Run it bare — `caffeinate -disu bash app/test-gate.sh`.
+  a separate owner gate. Supply the commit preceding your changes, for example
+  `GRADUS_STATIC_BASE=<base-commit> caffeinate -disu bash app/test-gate.sh`.
+  Static checks cover changed Swift files before app automation starts.
+  For focused Mac image checks, run `bash app/test-mac-snapshots.sh`; the
+  test child uses America/New_York and a staged copy of the baselines.
   Its three UI legs each take the machine-wide `apple-ui-test-lock` themselves,
   and that lock is not re-entrant, so launching the gate underneath an outer
   hold hangs those legs on a lock their own ancestor owns.

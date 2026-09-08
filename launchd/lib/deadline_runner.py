@@ -193,7 +193,7 @@ def _read_record(path: str) -> tuple[int, int, str] | None:
         return None
 
 
-def _check_conflicts(state_dir: str) -> bool:
+def _check_conflicts(state_dir: str, group_alive: Callable[[int], bool] = _pid_group_alive) -> bool:
     try:
         entries = list(os.scandir(state_dir))
     except OSError:
@@ -209,7 +209,7 @@ def _check_conflicts(state_dir: str) -> bool:
         if record is None:
             continue
         _, pgid, category = record
-        if _pid_group_alive(pgid):
+        if group_alive(pgid):
             _diagnostic(f"cleanup-conflict category={category}")
             return True
         try:
@@ -351,7 +351,7 @@ def run(
         state_dir = _safe_state_dir(state_dir)
         if state_dir is None:
             raise RunnerArguments("invalid state location")
-        if _check_conflicts(state_dir):
+        if _check_conflicts(state_dir, group_alive):
             return TIMEOUT_EXIT
     elif state_file is not None:
         parent = os.path.dirname(state_file) or "."
@@ -371,7 +371,7 @@ def run(
                 pass
     else:
         state_dir = _safe_state_dir(_default_state_dir())
-        if state_dir is None or _check_conflicts(state_dir):
+        if state_dir is None or _check_conflicts(state_dir, group_alive):
             return TIMEOUT_EXIT
 
     stderr_target: object = subprocess.PIPE
@@ -407,7 +407,6 @@ def run(
         pgid = pid
     _set_nonblocking(getattr(process, "stderr", None))
 
-    started = clock()
     stderr_count = 0
     returncode, group_left, stderr_count = _wait_bounded(
         process,
@@ -462,13 +461,6 @@ def run(
         )
         return TIMEOUT_EXIT
 
-    # A descendant-only cleanup completed after the direct child had already
-    # exited.  Preserve that ordinary child status; only a deadline timeout is
-    # represented by the reserved status.
-    if returncode is not None and clock() - started < deadline:
-        if stderr_file is not None:
-            stderr_target.close()  # type: ignore[attr-defined]
-        return returncode
     if stderr_file is not None:
         stderr_target.close()  # type: ignore[attr-defined]
     _diagnostic(

@@ -79,12 +79,52 @@ final class GradusMacUITests: XCTestCase {
         )
         XCTAssertNil(findElement(descendingFrom: settingsWindow, title: "Enable iCloud Sync"))
         XCTAssertNil(findElement(descendingFrom: settingsWindow, title: "iCloud Sync"))
+        _ = try requiredElement(descendingFrom: settingsWindow, title: "Menu bar")
+        _ = try requiredElement(
+            descendingFrom: settingsWindow,
+            title: "A selected bucket shows its remaining percentage. An asterisk marks stale data; "
+                + "a dash means unavailable. These choices apply on this Mac only."
+        )
         try attachWindowScreenshot(
             window: settingsWindow,
             ownerPID: fixture.pid,
             title: "Gradus Settings",
             name: "Gradus Settings window"
         )
+    }
+
+    func testMenuFixturePickerUpdatesTheSharedAccessibleLabelAndReturnsToGauge() throws {
+        let fixture = try launchMenuFixture()
+        let menuWindow = try waitForElement(
+            descendingFrom: fixture.application,
+            role: kAXWindowRole as String,
+            title: "Gradus UI Test Menu",
+            timeout: 10
+        )
+        _ = try requiredElement(descendingFrom: menuWindow, title: "Gradus usage gauge")
+
+        let settingsButton = try requiredElement(
+            descendingFrom: menuWindow, role: kAXButtonRole as String, title: "Settings…"
+        )
+        try performPress(on: settingsButton)
+        let settingsWindow = try waitForElement(
+            descendingFrom: fixture.application,
+            role: kAXWindowRole as String,
+            title: "Gradus Settings",
+            timeout: 5
+        )
+        // Selecting a bucket rebuilds the picker's SwiftUI content, so the
+        // element is re-resolved before each press rather than held across the
+        // rebuild, and the opened menu is waited for rather than sampled once.
+        try selectMenuBarDisplay("Codex / Weekly", in: settingsWindow, of: fixture)
+        _ = try waitForElement(
+            descendingFrom: menuWindow,
+            title: "Codex weekly, 44 percent remaining, stale",
+            timeout: 3
+        )
+
+        try selectMenuBarDisplay("Gauge", in: settingsWindow, of: fixture)
+        _ = try waitForElement(descendingFrom: menuWindow, title: "Gradus usage gauge", timeout: 3)
     }
 
     func testMenuFixtureExposesRequiredICloudStatusAndLoginControl() throws {

@@ -52,10 +52,16 @@ pass() { echo "  ok: $*"; }
 # the generated file passes here and is silently reverted by the next `xcodegen
 # generate` -- which is exactly what the gate does, a few legs after running
 # this file. So assert the YAML first, then that the generated file agrees.
-python3 -c 'import yaml' 2>/dev/null ||
-  fail "python3 on this PATH has no PyYAML; these assertions read project.yml directly (try /opt/homebrew/bin/python3)"
+# Read the YAML through the project's managed environment, like every sibling
+# suite (`uv run pytest`). A bare `python3` resolves to whichever interpreter is
+# first on PATH -- on this machine homebrew's, which happens to have PyYAML,
+# while /usr/bin/python3 does not. That made a gate-registered test depend on
+# PATH ordering rather than on the repo.
+PY_RUN=(uv run --quiet python)
+"${PY_RUN[@]}" -c 'import yaml' 2>/dev/null ||
+  fail "the project environment has no PyYAML; run 'uv sync' (these assertions read project.yml directly)"
 
-yaml_env="$(python3 - "$PROJECT_YML" <<'PYEOF'
+yaml_env="$("${PY_RUN[@]}" - "$PROJECT_YML" <<'PYEOF'
 import sys, yaml
 spec = yaml.safe_load(open(sys.argv[1]))
 props = spec["targets"]["GradusiOS"]["entitlements"]["properties"]
@@ -68,7 +74,7 @@ pass "project.yml pins the Production container for GradusiOS"
 
 # The widget has no CloudKit entitlement, so the key would be meaningless there
 # -- and a stray copy is how a future edit ends up pinning the wrong target.
-widget_env="$(python3 - "$PROJECT_YML" <<'PYEOF'
+widget_env="$("${PY_RUN[@]}" - "$PROJECT_YML" <<'PYEOF'
 import sys, yaml
 spec = yaml.safe_load(open(sys.argv[1]))
 props = spec["targets"]["GradusWidget"]["entitlements"]["properties"]

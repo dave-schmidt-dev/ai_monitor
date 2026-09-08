@@ -462,6 +462,44 @@ run_deadline_fixture bounded-timeout 124 bash -c 'while :; do :; done'
 grep -Fq 'FAIL: bounded-timeout exceeded 1s; terminating' \
   "$deadline_test_root/bounded-timeout.out" ||
   fail "deadline timeout did not emit visible termination evidence"
+
+# A leg killed from outside is not a leg that failed. `apple-ui-test-lock`
+# handing the machine on, a harness timeout, or a Ctrl-C all land here, and
+# before this they printed exactly what a real assertion failure prints. The
+# status still propagates -- an interrupted leg proved nothing and must not
+# pass -- so only the explanation is under test.
+# SIGINT is absent from this loop on purpose. Bash sets SIGINT to ignore in a
+# child it starts with `&`, so a backgrounded leg cannot be INT'd through the
+# same path -- measured: `kill -INT $$` inside the fixture does nothing and the
+# 1s deadline fires instead, returning 124. The reporter still handles 130,
+# because a leg's own process group can be signalled directly, and that branch
+# is exercised below rather than pretended at here.
+for signal_case in "external-sigterm TERM 143" "external-sigkill KILL 137"; do
+  read -r case_name case_signal case_status <<< "$signal_case"
+  run_deadline_fixture "$case_name" "$case_status" bash -c "kill -$case_signal \$\$; sleep 5"
+  grep -Fq "was terminated by SIG$case_signal from outside this gate" \
+    "$deadline_test_root/$case_name.out" ||
+    fail "external SIG$case_signal was not reported as a kill rather than a failure"
+  grep -Fq "the leg was killed, not failed" "$deadline_test_root/$case_name.out" ||
+    fail "external SIG$case_signal did not say the leg proved nothing"
+done
+
+# The watchdog's own TERM must keep reading as a timeout, not as an outside
+# kill: it writes the marker before it signals, and 124 is the conventional
+# status the rest of the gate keys on.
+grep -Fq 'from outside this gate' "$deadline_test_root/bounded-timeout.out" &&
+  fail "the deadline's own termination was misreported as an external kill"
+
+# The remaining branches of the reporter, called directly: 130 is real but not
+# reachable through a backgrounded child (see above), and an ordinary nonzero
+# status must stay silent so a genuine test failure is never dressed up as a
+# kill.
+reporter_output="$(report_external_termination sigint-case 130 2>&1)"
+[[ "$reporter_output" == *"terminated by SIGINT from outside this gate"* ]] ||
+  fail "the termination reporter does not describe SIGINT"
+reporter_output="$(report_external_termination ordinary-failure 1 2>&1)"
+[[ -z "$reporter_output" ]] ||
+  fail "the termination reporter spoke for an ordinary failure: $reporter_output"
 [[ -z "$(find "$deadline_test_root" -maxdepth 1 -type f -name 'gradus-test-deadline.*' -print -quit)" ]] ||
   fail "deadline watchdog marker was not cleaned up"
 rm -rf "$deadline_test_root"
@@ -512,7 +550,10 @@ validate_gradus_mac_ui_lock_contract() {
   ui_leg_block="$(sed -n '/assert_counting_leg "GradusMacUI"/,/-only-testing:GradusMacUITests/p' "$gate_path" |
     sed 's/[[:space:]]*\\$//' | tr '\n' ' ' | tr -s ' ')"
   [[ "$ui_leg_block" == *'assert_counting_leg "GradusMacUI" "$APPLE_UI_TEST_LOCK" --label "GradusMac UI tests" -- bash -c '\''run_with_deadline "$@"'\'' gradus-mac-ui-leg "$GRADUS_MAC_TEST_TIMEOUT_SECONDS" "GradusMac UI tests" env GRADUS_DISABLE_PIPELINE=1 xcodebuild test'* ]] || return 1
-  grep -Fq 'export -f run_with_deadline' "$gate_path" || return 1
+  # Both names, because `run_with_deadline` calls the reporter: exporting only
+  # the wrapper leaves the re-entered shell without it, and the one leg most
+  # exposed to an outside TERM loses the explanation it exists to print.
+  grep -Fq 'export -f run_with_deadline report_external_termination' "$gate_path" || return 1
 }
 
 validate_gradus_mac_ui_lock_contract "$GATE_SCRIPT" ||
@@ -523,9 +564,14 @@ sed 's/"\$APPLE_UI_TEST_LOCK" --label "GradusMac UI tests" -- //' "$GATE_SCRIPT"
 if validate_gradus_mac_ui_lock_contract "$mutated_gate"; then
   fail "GradusMacUI lock contract accepted an unserialized leg"
 fi
-sed '/^export -f run_with_deadline$/d' "$GATE_SCRIPT" > "$mutated_gate"
+sed '/^export -f run_with_deadline/d' "$GATE_SCRIPT" > "$mutated_gate"
 if validate_gradus_mac_ui_lock_contract "$mutated_gate"; then
   fail "GradusMacUI lock contract accepted a leg whose deadline cannot cross the exec"
+fi
+sed 's/^export -f run_with_deadline report_external_termination$/export -f run_with_deadline/' \
+  "$GATE_SCRIPT" > "$mutated_gate"
+if validate_gradus_mac_ui_lock_contract "$mutated_gate"; then
+  fail "GradusMacUI lock contract accepted an export missing the termination reporter"
 fi
 rm -f "$mutated_gate"
 
@@ -841,21 +887,38 @@ expect_failure "missing GRADUS_STATIC_BASE" env -u GRADUS_STATIC_BASE \
 expect_failure "invalid GRADUS_STATIC_BASE" env GRADUS_STATIC_BASE=definitely-not-a-revision \
   bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
 
+# These cases used to run against this repository, so their outcome depended on
+# whether the developer happened to have an uncommitted Swift file: with a clean
+# tree the changed scope is empty, the checks short-circuit to success, and the
+# fake nonzero tools are never invoked, so "SwiftLint nonzero" and "SwiftFormat
+# nonzero" both reported "unexpectedly passed" on a clean checkout. Point the
+# gate at a repository this script owns instead, holding exactly one changed
+# canonical Swift path, so the scope is the same on every machine.
+static_scope_root="$diagnostic_test_root/static-scope-repo"
+mkdir -p "$static_scope_root/app" "$static_scope_root/scripts"
+cp "$PROJECT_ROOT/scripts/check-static-tool-versions.sh" "$static_scope_root/scripts/"
+git -C "$static_scope_root" init -q
+git -C "$static_scope_root" -c user.email=gate@example.invalid -c user.name=gate \
+  commit -q --allow-empty -m "static scope base"
+printf 'let staticScopeFixture = 0\n' >"$static_scope_root/app/StaticScopeFixture.swift"
+run_scoped_static_checks() {
+  env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
+    bash -c 'source "$1"; GATE_REPO_ROOT="$2"; run_changed_swift_static_checks' \
+    bash "$GATE_SCRIPT" "$static_scope_root"
+}
+
 make_fake_static_tools 0 0 0.65.1
-PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD run_changed_swift_static_checks ||
-  fail "fake successful Swift static checks failed"
+run_scoped_static_checks || fail "fake successful Swift static checks failed"
+[[ "$(run_scoped_static_checks)" == *"1 changed canonical Swift file"* ]] ||
+  fail "static check fixture did not present exactly one changed Swift path"
 make_fake_static_tools 23 0 0.65.1
-expect_failure "SwiftLint nonzero" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
-  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+expect_failure "SwiftLint nonzero" run_scoped_static_checks
 make_fake_static_tools 0 29 0.65.1
-expect_failure "SwiftFormat nonzero" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
-  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+expect_failure "SwiftFormat nonzero" run_scoped_static_checks
 make_fake_static_tools 0 0 9.9.9
-expect_failure "wrong SwiftLint version" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
-  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+expect_failure "wrong SwiftLint version" run_scoped_static_checks
 make_fake_static_tools 0 0 0.65.1 1
-expect_failure "missing SwiftLint" env PATH="$fake_static_bin:/usr/bin:/bin" GRADUS_STATIC_BASE=HEAD \
-  bash -c 'source "$1"; run_changed_swift_static_checks' bash "$GATE_SCRIPT"
+expect_failure "missing SwiftLint" run_scoped_static_checks
 
 validate_timezone_gate_contract() {
   local gate_path="$1" focused_path="$2" test_path="$3" mac_block

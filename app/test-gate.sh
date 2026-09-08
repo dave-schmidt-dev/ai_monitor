@@ -420,9 +420,39 @@ run_with_deadline() {
   if [[ -s "$marker" ]]; then
     command_status=124
     echo "FAIL: $label exceeded ${deadline_seconds}s; terminating" >&2
+  else
+    report_external_termination "$label" "$command_status"
   fi
   rm -f "$marker"
   return "$command_status"
+}
+
+# Say so when a leg was killed rather than failed.
+#
+# The watchdog above writes the marker before it signals, so a termination
+# status reaching here with an empty marker came from outside this gate --
+# `apple-ui-test-lock` handing the machine to another holder, a harness
+# timeout, or someone at the keyboard. Without this the leg printed the same
+# "failed" line a real assertion failure prints, and the run was read as a
+# regression in code that was never allowed to finish.
+#
+# The status still propagates unchanged: an interrupted leg proved nothing, so
+# the gate must not pass. Only the explanation changes. A test binary that
+# exits 130/137/143 on its own would be described this way too; nothing in the
+# exit status distinguishes the two, and mislabelling a real failure as a kill
+# is the safer error here because both stop the gate.
+report_external_termination() {
+  local label="$1" status="$2" signal
+  case "$status" in
+    130) signal="SIGINT" ;;
+    137) signal="SIGKILL" ;;
+    143) signal="SIGTERM" ;;
+    *) return 0 ;;
+  esac
+  echo "FAIL: $label was terminated by $signal from outside this gate" >&2
+  echo "      (exit $status, no deadline fired) -- the leg was killed, not failed," >&2
+  echo "      so it proved nothing about the code. Re-run it before reading this" >&2
+  echo "      as a regression." >&2
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
@@ -716,8 +746,11 @@ echo "==> xcodebuild test — GradusMacUITests (platform=macOS; exact GradusMac 
 # reported a spurious `exceeded 600s` failure without ever starting xcodebuild.
 # The lock execvp's in place, so `run_with_deadline` still runs as its own
 # process, still governs only xcodebuild, and its TERM still reaches it;
-# `export -f` is what carries the function across that exec.
-export -f run_with_deadline
+# `export -f` is what carries the function across that exec -- and it has to
+# carry the helper `run_with_deadline` calls too, or the one leg most likely to
+# be killed by an external TERM (this is the leg that waits on the machine-wide
+# lock) would lose the explanation at exactly the moment it is needed.
+export -f run_with_deadline report_external_termination
 assert_counting_leg "GradusMacUI" \
   "$APPLE_UI_TEST_LOCK" --label "GradusMac UI tests" -- \
   bash -c 'run_with_deadline "$@"' gradus-mac-ui-leg \

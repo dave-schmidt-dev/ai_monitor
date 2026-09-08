@@ -22,6 +22,11 @@ from release_tools.adapter import (
 from release_tools.conformance import audit_conformance
 
 ROOT = Path(__file__).resolve().parents[1]
+
+sys.path.insert(0, str(ROOT / "app"))
+
+import gradus_release_bridge as BRIDGE  # noqa: E402  (needs the path insert above)
+
 ADAPTER = ROOT / ".release" / "release-adapter.json"
 PLAN = ROOT / ".release" / "release-plan.json"
 BROKER_REQUEST = ROOT / ".release" / "broker-consumer-request.json"
@@ -95,6 +100,21 @@ class GradusAdapterTests(unittest.TestCase):
                 self.assertIsInstance(operation["argv"], list)
             elif operation["mode"] == "credential":
                 self.assertIsInstance(operation["arguments"], list)
+
+    def test_processing_stage_allows_the_full_window_the_bridge_will_wait(self) -> None:
+        """The runner's deadline must not be shorter than the bridge's own.
+
+        ``processing`` is the one operation that polls Apple, and it polls for
+        ``PROCESSING_TIMEOUT_SECONDS``.  If the adapter's deadline were the
+        smaller of the two, the runner would kill a poll that was still inside
+        its own budget and the kill would be recorded as a stage failure rather
+        than as a timeout nobody chose.  Two constants in two files cannot stay
+        equal on their own, so this pins them.
+        """
+
+        document = json.loads(ADAPTER.read_text(encoding="utf-8"))
+        stage = next(s for s in document["operations"] if s["id"] == "processing")
+        self.assertGreaterEqual(stage["timeoutSeconds"], BRIDGE.PROCESSING_TIMEOUT_SECONDS)
 
     def test_declared_diagnostic_is_accepted_by_the_central_schema(self) -> None:
         sys.path.insert(0, str(ROOT / "app"))

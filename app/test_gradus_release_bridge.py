@@ -1597,6 +1597,7 @@ class BridgeTests(unittest.TestCase):
                         "marketingVersion": "1.7.0",
                         "build": 19,
                         "artifactSha256": "a" * 64,
+                        "state": "prepared",
                     }
                 ),
                 encoding="utf-8",
@@ -1798,6 +1799,9 @@ class BridgeTests(unittest.TestCase):
                     "marketingVersion": "1.7.0",
                     "build": 19,
                     "artifactSha256": "a" * 64,
+                    # Real ledgers always carry a state; the legacy binding path
+                    # holds it to the same set as the central one.
+                    "state": "uploaded_unassigned",
                 }
             ),
             encoding="utf-8",
@@ -2718,6 +2722,86 @@ class BridgeTests(unittest.TestCase):
                 proof["groupIdentifierHash"], hashlib.sha256(group.encode()).hexdigest()
             )
             self.assertNotIn(group, json.dumps(proof), "the proof republished the group identifier")
+
+    def test_assignment_reads_the_recorded_evidence_path_over_the_conventional_one(self) -> None:
+        """The uploader records where it wrote the walkthrough; assignment must use it.
+
+        ``archive-upload-ios.sh`` writes ``metadata.candidateEvidencePath``
+        alongside the workspace, and the two need not agree -- a resumed or
+        relocated candidate carries an evidence file outside its workspace.
+        Guessing the conventional name here is not the harmless miss it is for
+        the delivery receipt: the path is handed to ``--evidence``, so a wrong
+        guess either fails the assignment or attaches the wrong walkthrough to
+        a build that real testers receive.
+        """
+
+        group = "00000000-0000-4000-8000-000000000001"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            self._legacy_candidate(root)
+            recorded = root / "elsewhere" / "walkthrough-evidence.json"
+            ledger = root / ".release-state" / "candidate.json"
+            record = json.loads(ledger.read_text(encoding="utf-8"))
+            record["metadata"] = {"candidateEvidencePath": str(recorded)}
+            ledger.write_text(json.dumps(record), encoding="utf-8")
+            self._confirm(root, group, "Internal Testers")
+            self._tester_group_proof(root, group)
+            calls = []
+
+            receipt = json.dumps(
+                {
+                    "candidate_id": "gradus-ios-19",
+                    "build": 19,
+                    "group_id": group,
+                    "group_name": "Internal Testers",
+                    "assigned": True,
+                    "state": "assigned",
+                }
+            )
+
+            def runner(argv, **kwargs):
+                calls.append(argv)
+                return subprocess.CompletedProcess(argv, 0, receipt, "")
+
+            self.assertEqual(self._dispatch_assignment(root, runner), 0)
+            argv = calls[0]
+            self.assertEqual(argv[argv.index("--evidence") + 1], str(recorded))
+
+    def test_legacy_binding_refuses_a_candidate_the_central_path_would_refuse(self) -> None:
+        """One ledger, one rule: a non-bindable state binds through neither path.
+
+        The central manifest path already requires ``_BINDABLE_STATES``.  Before
+        this, a legacy-only ledger skipped that check entirely, so a
+        ``superseded`` candidate -- the state every rotated ledger in
+        ``.release-state/candidates`` actually carries -- could be bound and
+        distributed by the weaker of the two paths.  The runner is a trap:
+        reaching it means the build was about to go out.
+        """
+
+        group = "00000000-0000-4000-8000-000000000001"
+        for state in ("superseded", "failed", None):
+            with self.subTest(state=state), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                self._legacy_candidate(root)
+                ledger = root / ".release-state" / "candidate.json"
+                record = json.loads(ledger.read_text(encoding="utf-8"))
+                if state is None:
+                    record.pop("state")
+                else:
+                    record["state"] = state
+                ledger.write_text(json.dumps(record), encoding="utf-8")
+                self._confirm(root, group, "Internal Testers")
+                self._tester_group_proof(root, group)
+
+                def runner(argv, **kwargs):  # pragma: no cover - must not run
+                    raise AssertionError("assignment ran for a non-bindable candidate")
+
+                self.assertEqual(self._dispatch_assignment(root, runner), 3)
+                proof = json.loads(
+                    (root / "evidence" / "gradus-ios-19" / "assignment.json").read_text()
+                )
+                self.assertEqual(proof["result"], "blocked")
+                self.assertEqual(proof["reason"], "candidate-ledger-mismatch")
 
     def test_assignment_refuses_a_receipt_that_never_reached_apple(self) -> None:
         """A zero exit is not a distribution.

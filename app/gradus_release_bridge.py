@@ -346,7 +346,13 @@ def _candidate_bindings(candidate: str) -> tuple[str, Mapping[str, Any], str, in
         build = record.get("build")
         artifact = record.get("artifactSha256")
         if (
-            not isinstance(version, str)
+            # A legacy-only candidate is held to the same states as one bound
+            # through the central manifest below.  Without this the two paths
+            # disagree: a `failed` or `superseded` ledger would bind here and
+            # be refused there, which is the wrong way round for a fail-closed
+            # gate -- the weaker evidence must not buy the looser rule.
+            record.get("state") not in _BINDABLE_STATES
+            or not isinstance(version, str)
             or not _SEMVER.fullmatch(version)
             or isinstance(build, bool)
             or not isinstance(build, int)
@@ -470,6 +476,24 @@ def _delivery_receipt_path(legacy_candidate: str, record: Mapping[str, Any]) -> 
         if isinstance(workspace, str) and workspace.strip():
             return Path(workspace) / "upload-delivery.json"
     return ROOT / ".release-state" / "candidates" / legacy_candidate / "upload-delivery.json"
+
+
+def _candidate_evidence_path(legacy_candidate: str, record: Mapping[str, Any]) -> Path:
+    """Locate the walkthrough evidence file this candidate was prepared with.
+
+    ``archive-upload-ios.sh`` records the exact path it wrote alongside the
+    workspace, so that is authoritative when present.  Unlike the delivery
+    receipt above, guessing wrong here is not harmless: the path is handed to
+    ``testflight-assign.py --evidence``, so a wrong guess either fails the
+    assignment or attaches the wrong walkthrough to a distributed build.
+    """
+
+    metadata = record.get("metadata")
+    if isinstance(metadata, Mapping):
+        evidence = metadata.get("candidateEvidencePath")
+        if isinstance(evidence, str) and evidence.strip():
+            return Path(evidence)
+    return _delivery_receipt_path(legacy_candidate, record).parent / "candidate-evidence.json"
 
 
 def _adopted_delivery(
@@ -1049,7 +1073,7 @@ def _assignment(candidate: str, *, runner: Callable[..., subprocess.CompletedPro
         "--ledger",
         str(LEGACY_LEDGER),
         "--evidence",
-        str(workspace / "candidate-evidence.json"),
+        str(_candidate_evidence_path(legacy_candidate, record)),
         "--receipt-journal",
         str(workspace / "receipt-journal.json"),
     ]

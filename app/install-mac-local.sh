@@ -427,7 +427,9 @@ registered_bundle_paths() {
 is_disposable_registration() {
   local path="$1" root
   [[ -e "$path" ]] || return 0
-  for root in "$PWD/build" "$PWD/app/build" "$PWD/.build" "${GRADUS_EXPORT_ROOT:-}" \
+  # The script cd's to `app/` above, so $PWD is the app directory: `$PWD/build`
+  # is the real build root and an `app/app/build` entry would never match.
+  for root in "$PWD/build" "$PWD/.build" "${GRADUS_EXPORT_ROOT:-}" \
     "${TMPDIR:-}" /private/tmp /tmp "$HOME/Library/Developer/Xcode/DerivedData"; do
     [[ -n "$root" ]] || continue
     [[ "$path" == "${root%/}/"* ]] && return 0

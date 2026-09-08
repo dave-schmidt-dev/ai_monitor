@@ -1,5 +1,6 @@
 import CloudKit
 import Foundation
+import GradusKit
 
 #if DEBUG
     /// T0.3 hard-seam spike (throwaway): proves CloudKit auth + a real round-trip
@@ -7,11 +8,11 @@ import Foundation
     /// Invoke with `--cloudkit-spike`; prints PASS/FAIL lines and exits.
     enum CloudKitSpike {
         static func run() async -> Never {
-            let container = CKContainer(identifier: "iCloud.com.zerodelta.gradus")
+            let container = CKContainer(identifier: CloudKitConstants.containerIdentifier)
             await verifyAccountStatus(container)
 
             let database = container.privateCloudDatabase
-            let zone = CKRecordZone(zoneName: "GradusZone")
+            let zone = CKRecordZone(zoneName: CloudKitConstants.zoneName)
             await saveZone(zone, in: database)
 
             let recordID = CKRecord.ID(recordName: "spike-provider-status", zoneID: zone.zoneID)
@@ -42,7 +43,7 @@ import Foundation
         private static func saveZone(_ zone: CKRecordZone, in database: CKDatabase) async {
             do {
                 _ = try await database.save(zone)
-                print("PASS: saved/confirmed zone GradusZone")
+                print("PASS: saved/confirmed zone \(CloudKitConstants.zoneName)")
             } catch {
                 print("FAIL: zone save threw: \(error)")
                 exit(1)
@@ -50,7 +51,7 @@ import Foundation
         }
 
         private static func makeSpikeRecord(recordID: CKRecord.ID) -> CKRecord {
-            let record = CKRecord(recordType: "ProviderStatus", recordID: recordID)
+            let record = CKRecord(recordType: CloudKitConstants.recordType, recordID: recordID)
             record["providerName"] = "spike-provider" as CKRecordValue
             record["usagePercent"] = 42.0 as CKRecordValue
             record["observedAt"] = Date() as CKRecordValue
@@ -60,7 +61,7 @@ import Foundation
         private static func saveRecord(_ record: CKRecord, in database: CKDatabase) async {
             do {
                 _ = try await database.save(record)
-                print("PASS: saved ProviderStatus record")
+                print("PASS: saved \(CloudKitConstants.recordType) record")
             } catch {
                 print("FAIL: record save threw: \(error)")
                 exit(1)

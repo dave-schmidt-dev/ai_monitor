@@ -114,8 +114,8 @@ final class GradusMacUITests: XCTestCase {
             timeout: 5
         )
         // Selecting a bucket rebuilds the picker's SwiftUI content, so the
-        // element is re-resolved before each press rather than held across the
-        // rebuild, and the opened menu is waited for rather than sampled once.
+        // helper re-resolves the element on each call rather than holding one
+        // across the rebuild, and waits for the previous menu to close first.
         try selectMenuBarDisplay("Codex / Weekly", in: settingsWindow, of: fixture)
         _ = try waitForElement(
             descendingFrom: menuWindow,

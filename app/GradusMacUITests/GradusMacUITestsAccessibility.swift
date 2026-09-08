@@ -289,29 +289,32 @@ extension GradusMacUITests {
     /// The picker is reached by identifier, not by title: the `Form` row renders
     /// "Menu bar" as a sibling `AXStaticText` and leaves the popup button's own
     /// `AXTitle` empty, exactly as this harness documents for the Settings
-    /// checkboxes. A press also lands on nothing while a previously chosen menu
-    /// is still dismissing -- probed as the popup's items being absent from the
-    /// tree entirely rather than present under another name -- so the open is
-    /// retried until the menu is actually up.
+    /// checkboxes.
+    ///
+    /// A press issued while a previously opened menu is still on screen opens
+    /// nothing, so the open and the choice are both bracketed by a wait for that
+    /// menu to be gone. One press is then enough. The earlier version pressed
+    /// repeatedly until an item showed up, which hid the ordering instead of
+    /// establishing it, and turned a real failure into a timeout.
     func selectMenuBarDisplay(
         _ choice: String,
         in settingsWindow: AXUIElement,
         of fixture: RunningFixture
     ) throws {
-        let deadline = Date().addingTimeInterval(10)
-        repeat {
-            let picker = try requiredElement(
-                descendingFrom: settingsWindow,
-                role: kAXPopUpButtonRole as String,
-                identifier: "settings-menu-bar-display"
+        try awaitDisplayMenuClosed(of: fixture, timeout: 5)
+        let picker = try requiredElement(
+            descendingFrom: settingsWindow,
+            role: kAXPopUpButtonRole as String,
+            identifier: "settings-menu-bar-display"
+        )
+        try performPress(on: picker)
+        guard let item = awaitMenuItem(named: choice, of: fixture, timeout: 5) else {
+            throw HarnessError.failed(
+                "Menu bar display picker never offered \(choice); it exposed \(described(picker))"
             )
-            try performPress(on: picker)
-            if let item = awaitMenuItem(named: choice, of: fixture, timeout: 2) {
-                try performPress(on: item)
-                return
-            }
-        } while Date() < deadline
-        throw HarnessError.failed("Menu bar display picker never offered \(choice)")
+        }
+        try performPress(on: item)
+        try awaitDisplayMenuClosed(of: fixture, timeout: 5)
     }
 
     func awaitMenuItem(
@@ -331,5 +334,36 @@ extension GradusMacUITests {
             Thread.sleep(forTimeInterval: 0.1)
         } while Date() < deadline
         return nil
+    }
+
+    /// Waits until this picker's menu is off screen.
+    ///
+    /// A closed popup exposes none of its items: probed with the menu shut and
+    /// "Codex / Weekly" already selected, neither that title nor "Gauge" was an
+    /// `AXMenuItem` anywhere under the app, and all 199 menu elements then in the
+    /// tree belonged to the main menu bar. "Gauge" is always one of this picker's
+    /// items and is not a menu item anywhere else, so its absence is the signal.
+    private func awaitDisplayMenuClosed(of fixture: RunningFixture, timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        repeat {
+            if findElement(
+                descendingFrom: fixture.application,
+                role: kAXMenuItemRole as String,
+                title: "Gauge"
+            ) == nil {
+                return
+            }
+            Thread.sleep(forTimeInterval: 0.1)
+        } while Date() < deadline
+        throw HarnessError.failed("Menu bar display picker menu stayed open past \(timeout)s")
+    }
+
+    /// Roles and names under `element`, so a miss names what was there instead.
+    private func described(_ element: AXUIElement) -> String {
+        let rows = descendants(of: element).prefix(20).map { child in
+            let role = attribute(child, kAXRoleAttribute as String) as String? ?? "?"
+            return "\(role)[\(accessibleStrings(of: child).sorted().joined(separator: "|"))]"
+        }
+        return rows.isEmpty ? "no descendants" : rows.joined(separator: " ")
     }
 }

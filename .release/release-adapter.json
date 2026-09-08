@@ -299,7 +299,7 @@
       "arguments": ["--operation", "assignment", "--product", "gradus-ios", "--candidate", "{candidateId}"],
       "proofSchema": "release.proof.assignment.v1",
       "dependencies": ["tester-group"],
-      "timeoutSeconds": 900,
+      "timeoutSeconds": 5400,
       "statusEvents": {
         "started": "assignment:started",
         "heartbeat": "assignment:heartbeat",

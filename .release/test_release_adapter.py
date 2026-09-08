@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import importlib.util
 import json
 import sys
 import tempfile
@@ -26,6 +27,17 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "app"))
 
 import gradus_release_bridge as BRIDGE  # noqa: E402  (needs the path insert above)
+
+# `testflight-assign.py` is a hyphenated script, so it cannot be imported by
+# name; loading it by path is the only way to read its real constants instead
+# of copying them here, where they would silently stop matching.
+_assign_spec = importlib.util.spec_from_file_location(
+    "gradus_testflight_assign",
+    Path(__file__).resolve().parents[1] / "app" / "testflight-assign.py",
+)
+assert _assign_spec is not None and _assign_spec.loader is not None
+ASSIGN = importlib.util.module_from_spec(_assign_spec)
+_assign_spec.loader.exec_module(ASSIGN)
 
 ADAPTER = ROOT / ".release" / "release-adapter.json"
 PLAN = ROOT / ".release" / "release-plan.json"
@@ -115,6 +127,21 @@ class GradusAdapterTests(unittest.TestCase):
         document = json.loads(ADAPTER.read_text(encoding="utf-8"))
         stage = next(s for s in document["operations"] if s["id"] == "processing")
         self.assertGreaterEqual(stage["timeoutSeconds"], BRIDGE.PROCESSING_TIMEOUT_SECONDS)
+
+    def test_assignment_stage_allows_every_poll_testflight_assign_can_make(self) -> None:
+        """The declared assignment budget must cover the script's worst case.
+
+        ``assignment`` delegates to ``testflight-assign.py``, which calls
+        ``assign_candidate`` three times in sequence -- observe, assign,
+        confirm -- and each call carries its own ``POLL_TIMEOUT_SECONDS``
+        deadline.  A declared budget smaller than that sum describes a stage
+        that cannot finish, so a runner that ever honors ``timeoutSeconds``
+        would kill a healthy assignment and record it as a stage failure.
+        """
+
+        document = json.loads(ADAPTER.read_text(encoding="utf-8"))
+        stage = next(s for s in document["operations"] if s["id"] == "assignment")
+        self.assertGreaterEqual(stage["timeoutSeconds"], 3 * ASSIGN.POLL_TIMEOUT_SECONDS)
 
     def test_declared_diagnostic_is_accepted_by_the_central_schema(self) -> None:
         sys.path.insert(0, str(ROOT / "app"))

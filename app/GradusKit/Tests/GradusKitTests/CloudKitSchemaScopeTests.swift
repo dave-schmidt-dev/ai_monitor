@@ -17,6 +17,24 @@ import Testing
 //
 // It found one real instance when it was written: `Shared/CloudKitSpike.swift`
 // hardcoded all three names in DEBUG code compiled into both apps.
+//
+// inv: INV-9 -- these names are the producer/consumer compatibility unit. The
+// scan below stops a literal from drifting away from the constant; the pins
+// stop the constant itself from drifting away from the deployed schema, which
+// is a server-side migration for every installed client, not a refactor.
+
+@Test
+func deployedSchemaNamesAreNotRenamedByAccident() {
+    // These four strings exist in CloudKit already. Changing one is a
+    // migration -- old clients keep reading the old zone and record types --
+    // so a rename must be a deliberate edit here, not a rename refactor that
+    // compiles clean and ships silently.
+    #expect(CloudKitConstants.containerIdentifier == "iCloud.com.zerodelta.gradus")
+    #expect(CloudKitConstants.zoneName == "GradusZone")
+    #expect(CloudKitConstants.recordType == "ProviderStatus")
+    #expect(CloudKitConstants.devicePresenceRecordType == "DevicePresence")
+    #expect(CloudKitConstants.devicePresenceSubscriptionID == "gradus-device-presence")
+}
 
 /// Names that define the wire schema. A literal spelling of any of these
 /// outside the file that declares them is drift by construction.

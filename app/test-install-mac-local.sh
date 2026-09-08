@@ -10,10 +10,13 @@
 # gets "simplified" back into a direct copy, this is the test that notices.
 #
 # Note the shape of every negative assertion below: `if run_install ...; then
-# fail ...; fi`, never `run_install ... && fail ...`. Under `set -e` the second
-# form aborts the whole file the moment the command fails — which is the case
-# these tests exist to exercise. That is the same footgun the install script
-# was written to avoid, and it bit this file first.
+# fail ...; fi`. An earlier version of this comment claimed `run_install ... &&
+# fail ...` aborts the file under `set -e`; that is wrong, and was propagated
+# into test-install-ios-local.sh before being checked. A command in a `&&` list
+# is exempt from errexit, so both forms survive. The shape that does abort the
+# file is a *bare* failing call or assignment -- `out="$(run_install ...)"` with
+# no `if` and no `||` exits immediately and takes the remaining tests with it.
+# The `if` form is used here because it is unambiguous at a glance.
 set -euo pipefail
 
 umask 077

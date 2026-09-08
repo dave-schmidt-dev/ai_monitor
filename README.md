@@ -689,6 +689,46 @@ cd app
 ./install-mac-local.sh --skip-build  # reuse the existing export
 ```
 
+### Installing Gradus on an iOS device
+
+`install-ios-local.sh` is the iOS counterpart and the local alternative to
+`archive-upload-ios.sh`: it builds for a physical device, installs, and launches, with no
+App Store Connect and no TestFlight. Automatic signing needs an Apple ID in Xcode's
+accounts; without one the build fails with `No Accounts` rather than anything about
+entitlements.
+
+```bash
+cd app
+./test-install-ios-local.sh                  # hermetic; xcodebuild/xcrun/codesign all faked
+./install-ios-local.sh --list                # connected devices
+./install-ios-local.sh --device <id> --dry-run   # build and verify; touch no device
+./install-ios-local.sh --device <id>         # build, install, launch
+```
+
+**Why it verifies the signed product.** `com.apple.developer.icloud-container-environment`
+decides which CloudKit container the app reads, and Xcode inherits it from the provisioning
+profile unless the entitlements pin it — so a Debug build signed with a *development*
+profile reads the Development container while the Mac publishes to Production. Nothing
+errors: the dashboard sits on "Waiting for First Publish" while the Mac logs successful
+publishes every two minutes, which is indistinguishable from a broken CloudKit read.
+`project.yml` pins it to `Production` for the `GradusiOS` target, and the script refuses to
+install unless the *signed* binary still says so — and, separately, that the embedded
+widget carries no such entitlement, since the leak below is the failure it was written
+around. It regenerates the project from `project.yml` first, like every sibling build
+script, so a tree whose spec is ahead of the generated files cannot build stale. Pin it in `project.yml`, never in
+`GradusiOS/GradusiOS.entitlements`: that file is XcodeGen output and `xcodegen generate`
+overwrites a hand edit to it. Do not restore the `CODE_SIGN_ENTITLEMENTS=` override
+that predated the pin: a command-line build setting applies to every target, so it also
+hands the app's push and iCloud entitlements to the embedded widget, which should carry
+only its app group.
+
+**Two device facts worth not rediscovering.** `devicectl` identifiers are CoreDevice UUIDs,
+not the hardware UDIDs a provisioning profile lists, so there is no useful pre-flight
+membership check — the install is the check. And a device connected over `localNetwork` can
+refuse the developer-disk-image mount with `kAMDMobileImageMounterDeviceLocked` while
+plainly unlocked; `ddiServicesAvailable: false` is the real signature and a cable is the
+usual fix.
+
 **Signing.** `exportArchive` does not sign what a run script copied in, so the exported
 `Contents/Helpers/GradusRuntime.app` and everything under it arrives ad-hoc — which Apple's
 notary service rejects. `sign-mac-bundle.sh` therefore walks an explicit inventory deepest-first

@@ -501,6 +501,9 @@ echo "==> Hermetic iOS upload wrapper behavior tests"
 echo "==> Hermetic local Mac install behavior tests"
 ./test-install-mac-local.sh
 
+echo "==> Hermetic local iOS device install behavior tests"
+./test-install-ios-local.sh
+
 echo "==> Hermetic credential bridge install behavior tests"
 ./test-install-credential-bridge.sh
 

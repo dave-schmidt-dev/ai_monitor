@@ -339,6 +339,14 @@ targets:
         com.apple.developer.icloud-services:
           - CloudKit
         com.apple.developer.aps-environment: development
+        # Without this, the environment is inherited from whatever provisioning
+        # profile signs the build, so a development-signed build reads the
+        # *Development* CloudKit container while the Mac publishes to
+        # Production. Nothing errors -- the dashboard just sits on "Waiting for
+        # First Publish" forever. Pin it here rather than in the .entitlements
+        # file: that file is XcodeGen output and `xcodegen generate` overwrites
+        # a hand edit to it.
+        com.apple.developer.icloud-container-environment: Production
         com.apple.security.application-groups:
           - group.com.zerodelta.gradus
 

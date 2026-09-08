@@ -138,6 +138,21 @@ printf '%s\n' "$*" >>"${FAKE_RUNTIME:?}/open-calls"
 exit "${FAKE_OPEN_EXIT:-0}"
 FAKE
 
+# The dump format is the real one: records separated by a dashed rule, with
+# `identifier:` and `path:` lines and the trailing `(0x...)` the real tool
+# prints. FAKE_LSREGISTER_DUMP names a file holding it; -u and -f calls are
+# logged so a case can assert exactly which registrations were touched.
+cat >"$FAKE_BIN/lsregister" <<'FAKE'
+#!/usr/bin/env bash
+set -eu
+case "${1:-}" in
+  -dump) cat "${FAKE_LSREGISTER_DUMP:-/dev/null}" 2>/dev/null || true ;;
+  -u) printf 'unregister %s\n' "${2:-}" >>"${FAKE_RUNTIME:?}/lsregister-calls" ;;
+  -f) printf 'register %s\n' "${2:-}" >>"${FAKE_RUNTIME:?}/lsregister-calls" ;;
+esac
+exit 0
+FAKE
+
 cat >"$FAKE_BIN/xcodegen" <<'FAKE'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"${FAKE_RUNTIME:?}/xcodegen-calls"
@@ -199,6 +214,7 @@ else
   project_sha256="${FAKE_INSTALLED_PROJECT_SHA256:-${FAKE_PROJECT_SHA256:?}}"
 fi
 case "$key" in
+  *CFBundleIdentifier*) printf '%s\n' "${FAKE_BUNDLE_IDENTIFIER-com.zerodelta.gradus.mac}" ;;
   *CFBundleShortVersionString*) printf '%s\n' "$short" ;;
   *CFBundleVersion*) printf '%s\n' "$build" ;;
   *GRADUS_SOURCE_REVISION*) printf '%s\n' "$source_revision" ;;
@@ -258,6 +274,10 @@ setup_case() {
   FAKE_PROJECT_SHA256="$(/usr/bin/shasum -a 256 "$CASE_ROOT/project.yml" | /usr/bin/awk '{print $1}')"
   export FAKE_PROJECT_SHA256
   export PLIST_BUDDY="$FAKE_BIN/plistbuddy"
+  export LSREGISTER="$FAKE_BIN/lsregister"
+  FAKE_LSREGISTER_DUMP="$CASE_ROOT/lsregister-dump"
+  : >"$FAKE_LSREGISTER_DUMP"
+  export FAKE_LSREGISTER_DUMP
   export INSTALL_SIGN_SCRIPT="$FAKE_BIN/sign-stub"
   export INSTALL_VERIFY_SCRIPT="$FAKE_BIN/verify-stub"
   export QUIT_TIMEOUT_SECONDS=1
@@ -268,7 +288,7 @@ setup_case() {
   unset FAKE_CODESIGN_FAIL_SUBSTR FAKE_XATTR_FAIL_SUBSTR FAKE_APP_RUNNING_FLAG
   unset FAKE_ARCHIVE_SOURCE_REVISION FAKE_ARCHIVE_PROJECT_SHA256
   unset FAKE_INCOMING_SOURCE_REVISION FAKE_INCOMING_PROJECT_SHA256
-  unset FAKE_OPEN_EXIT FAKE_PKILL_EXIT
+  unset FAKE_OPEN_EXIT FAKE_PKILL_EXIT FAKE_BUNDLE_IDENTIFIER
   # The legacy-job notice must not depend on whether this developer's own Mac
   # still runs local.gradus-snapshot.
   export GRADUS_LEGACY_HOME="$CASE_ROOT/legacy-home"
@@ -591,6 +611,129 @@ make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
 run_install --skip-build || fail "install exited non-zero"
 grep -q "still installed and untouched" "$FAKE_RUNTIME/stdout" &&
   fail "invented a legacy job that is not there"
+end
+
+# ------------------------------------------------- LaunchServices identity
+
+# Writes an lsregister -dump for the current case. Each argument is one
+# "identifier|path" pair, in the real record layout.
+write_lsregister_dump() {
+  local pair identifier path
+  : >"$FAKE_LSREGISTER_DUMP"
+  for pair in "$@"; do
+    identifier="${pair%%|*}"
+    path="${pair#*|}"
+    {
+      printf 'identifier:                    %s\n' "$identifier"
+      printf 'path:                          %s (0x%s)\n' "$path" "1a2b3c"
+      printf '%s\n' "--------------------------------------------------------"
+    } >>"$FAKE_LSREGISTER_DUMP"
+  done
+}
+
+begin "relaunches through the identifier, the way a click resolves"
+setup_case relaunch-by-identifier
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+run_install --skip-build || fail "install exited non-zero"
+# `open -a <path>` proves the file exists and proves nothing about what the
+# Dock does; only the identifier goes through the resolution a click uses.
+grep -Fq -- "-b com.zerodelta.gradus.mac" "$FAKE_RUNTIME/open-calls" ||
+  fail "the installer did not relaunch through the bundle identifier"
+grep -Fq -- "-a $INSTALL_DIR/Gradus.app" "$FAKE_RUNTIME/open-calls" &&
+  fail "the installer relaunched by path when the identifier resolved"
+grep -Fq "register $INSTALL_DIR/Gradus.app" "$FAKE_RUNTIME/lsregister-calls" ||
+  fail "the installed app was not registered as the keeper"
+end
+
+begin "falls back to the path only when the identifier does not resolve"
+setup_case relaunch-fallback
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+FAKE_OPEN_EXIT=1 run_install --skip-build || fail "install exited non-zero"
+grep -Fq -- "-b com.zerodelta.gradus.mac" "$FAKE_RUNTIME/open-calls" ||
+  fail "the identifier was never tried"
+grep -Fq -- "-a $INSTALL_DIR/Gradus.app" "$FAKE_RUNTIME/open-calls" ||
+  fail "a failed identifier resolve did not fall back to the path"
+grep -q "did not resolve" "$FAKE_RUNTIME/stderr" ||
+  fail "the fallback was silent"
+end
+
+begin "drops registrations for bundles that are gone or under a build root"
+setup_case sweep-stale
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+mkdir -p "$BUILD_DIR/quickcheck"
+make_bundle "$BUILD_DIR/quickcheck/Gradus.app"
+write_lsregister_dump \
+  "com.zerodelta.gradus.mac|$CASE_ROOT/deleted-by-a-gate/Gradus.app" \
+  "com.zerodelta.gradus.mac|$BUILD_DIR/quickcheck/Gradus.app" \
+  "com.zerodelta.gradus.mac|$INSTALL_DIR/Gradus.app" \
+  "com.example.unrelated|$CASE_ROOT/Other.app"
+run_install --skip-build || fail "install exited non-zero"
+# A build root registers, runs, and is deleted; the record outlives it. Both
+# shapes -- vanished and still-present-under-build -- have to go.
+grep -Fq "unregister $CASE_ROOT/deleted-by-a-gate/Gradus.app" "$FAKE_RUNTIME/lsregister-calls" ||
+  fail "a registration for a bundle that no longer exists was kept"
+grep -Fq "unregister $BUILD_DIR/quickcheck/Gradus.app" "$FAKE_RUNTIME/lsregister-calls" ||
+  fail "a build-root bundle stayed registered"
+grep -Fq "unregister $INSTALL_DIR/Gradus.app" "$FAKE_RUNTIME/lsregister-calls" &&
+  fail "the installer unregistered the app it had just installed"
+grep -Fq "unregister $CASE_ROOT/Other.app" "$FAKE_RUNTIME/lsregister-calls" &&
+  fail "a bundle claiming a different identifier was swept"
+end
+
+begin "refuses to unregister another app the operator installed"
+setup_case sweep-refuses-installed
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+make_bundle "$INSTALL_DIR/GradusOld.app"
+write_lsregister_dump "com.zerodelta.gradus.mac|$INSTALL_DIR/GradusOld.app"
+run_install --skip-build || fail "install exited non-zero"
+grep -Fq "unregister $INSTALL_DIR/GradusOld.app" "$FAKE_RUNTIME/lsregister-calls" &&
+  fail "the installer took another installed app out of the running"
+grep -Fq "$INSTALL_DIR/GradusOld.app also claims" "$FAKE_RUNTIME/stderr" ||
+  fail "a conflicting installed bundle was not named"
+[[ -d "$INSTALL_DIR/GradusOld.app" ]] || fail "the installer deleted an app it should only name"
+end
+
+begin "leaves a claiming bundle outside every build root registered, and says so"
+setup_case sweep-names-unknown
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+mkdir -p "$CASE_ROOT/Elsewhere" "$CASE_ROOT/tmp"
+make_bundle "$CASE_ROOT/Elsewhere/Gradus.app"
+write_lsregister_dump "com.zerodelta.gradus.mac|$CASE_ROOT/Elsewhere/Gradus.app"
+# The case root itself normally sits under TMPDIR, which is a build root, so
+# without this the fixture would be disposable for the right reason and prove
+# nothing about the branch under test.
+TMPDIR="$CASE_ROOT/tmp" run_install --skip-build || fail "install exited non-zero"
+grep -Fq "unregister $CASE_ROOT/Elsewhere/Gradus.app" "$FAKE_RUNTIME/lsregister-calls" &&
+  fail "a bundle outside every build root was swept without being named"
+grep -Fq "outside every build root" "$FAKE_RUNTIME/stderr" ||
+  fail "an unexplained claimant was neither swept nor reported"
+end
+
+begin "says nothing twice about the pre-rename bundle"
+setup_case sweep-legacy-once
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+make_bundle "$INSTALL_DIR/GradusMac.app"
+write_lsregister_dump "com.zerodelta.gradus.mac|$INSTALL_DIR/GradusMac.app"
+run_install --skip-build || fail "install exited non-zero"
+# The legacy notice below already names it and gives the exact rm. A second,
+# vaguer warning about the same path trains the operator to skip both.
+grep -Fq "$INSTALL_DIR/GradusMac.app also claims" "$FAKE_RUNTIME/stderr" &&
+  fail "the sweep repeated a warning the legacy notice already gives"
+grep -Fq "rm -rf" "$FAKE_RUNTIME/stderr" || fail "the legacy notice lost its removal command"
+grep -Fq "unregister $INSTALL_DIR/GradusMac.app" "$FAKE_RUNTIME/lsregister-calls" &&
+  fail "the pre-rename bundle was unregistered rather than named"
+end
+
+begin "stops when the installed bundle declares no identifier"
+setup_case missing-identifier
+make_bundle "$GRADUS_EXPORT_ROOT/export/Gradus.app"
+export FAKE_BUNDLE_IDENTIFIER=""
+status=0
+run_install --skip-build || status=$?
+unset FAKE_BUNDLE_IDENTIFIER
+expect_eq "$status" "65" "a bundle with no identifier should stop the install"
+grep -q "no CFBundleIdentifier" "$FAKE_RUNTIME/stderr" ||
+  fail "the missing identifier was not explained"
 end
 
 # ------------------------------------------------------------------- summary

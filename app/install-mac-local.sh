@@ -62,6 +62,7 @@ PRODUCT_NAME="${PRODUCT_NAME:-Gradus}"
 LEGACY_PRODUCT_NAME="GradusMac"
 INSTALL_DIR="${INSTALL_DIR:-/Applications}"
 PLIST_BUDDY="${PLIST_BUDDY:-/usr/libexec/PlistBuddy}"
+LSREGISTER="${LSREGISTER:-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister}"
 BUILD_DIR="${BUILD_DIR:-build}"
 ARCHIVE_PATH="$BUILD_DIR/GradusMac.xcarchive"
 # The export is staged outside the checkout on purpose. This repository lives
@@ -384,9 +385,112 @@ if ! mv "$STAGED_APP" "$INSTALLED_APP"; then
 fi
 rm -rf "$PREVIOUS_APP"
 
-echo "==> Relaunching"
-if ! open -a "$INSTALLED_APP"; then
-  echo "WARN: installed cleanly but could not relaunch; start it from Finder." >&2
+# Everything below is about one fact: macOS resolves a Dock click, Spotlight,
+# and `open -b` through LaunchServices, which keys on CFBundleIdentifier across
+# every registered bundle on this machine -- not on /Applications, and not on
+# whichever path was written most recently. Two bundles claiming one identifier
+# makes which binary launches unpredictable, and a registration outlives the
+# bundle: a gate that builds into a temp root, runs, and deletes the root
+# leaves its record behind. Install time is the one moment exactly one path is
+# known to be correct, so the reconciliation belongs here rather than in each
+# build script.
+
+bundle_identifier_of() {
+  "$PLIST_BUDDY" -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true
+}
+
+# Prints every bundle path LaunchServices has registered for an identifier.
+# The dump is one record per bundle separated by a dashed rule, and a record
+# can repeat `identifier:` and `path:` for its document types, so only the
+# first of each belongs to the bundle itself. Path lines carry a trailing
+# `(0x...)` that is not part of the path.
+registered_bundle_paths() {
+  local identifier="$1"
+  [[ -x "$LSREGISTER" ]] || return 0
+  "$LSREGISTER" -dump 2>/dev/null | /usr/bin/awk '
+    /^-{20,}$/ { if (id != "" && path != "") print id "\t" path; id=""; path=""; next }
+    /^identifier:[[:space:]]+/ { if (id == "") { sub(/^identifier:[[:space:]]+/, ""); id = $0 } next }
+    /^path:[[:space:]]+/ {
+      if (path == "") { sub(/^path:[[:space:]]+/, ""); sub(/ \(0x[0-9a-f]+\)$/, ""); path = $0 }
+      next
+    }
+    END { if (id != "" && path != "") print id "\t" path }
+  ' | /usr/bin/awk -F'\t' -v want="$identifier" '$1 == want { print $2 }' | sort -u
+  return 0
+}
+
+# A registration is only dropped when it is provably disposable: the bundle is
+# gone, or it lives under a build or temp root. Anything else is named and left
+# alone -- unregistering an app someone installed deliberately is their call,
+# and a bundle inside the install directory is refused outright rather than
+# quietly taken out of the running.
+is_disposable_registration() {
+  local path="$1" root
+  [[ -e "$path" ]] || return 0
+  for root in "$PWD/build" "$PWD/app/build" "$PWD/.build" "${GRADUS_EXPORT_ROOT:-}" \
+    "${TMPDIR:-}" /private/tmp /tmp "$HOME/Library/Developer/Xcode/DerivedData"; do
+    [[ -n "$root" ]] || continue
+    [[ "$path" == "${root%/}/"* ]] && return 0
+  done
+  return 1
+}
+
+sweep_launch_services_registrations() {
+  local identifier="$1" keep="$2" path dropped=0 kept=0
+  if [[ ! -x "$LSREGISTER" ]]; then
+    echo "WARN: lsregister is not available; skipping the registration sweep." >&2
+    return 0
+  fi
+  while IFS= read -r path; do
+    [[ -n "$path" && "$path" != "$keep" ]] || continue
+    if [[ "$path" == "${INSTALL_DIR%/}/"* ]]; then
+      # The pre-rename bundle gets the more specific notice below, which names
+      # the exact command to remove it. Saying it twice trains the operator to
+      # skip both.
+      if [[ "$path" == "$INSTALL_DIR/$LEGACY_PRODUCT_NAME.app" ]]; then
+        kept=$((kept + 1))
+        continue
+      fi
+      echo "WARN: $path also claims $identifier." >&2
+      echo "      LaunchServices picks between two such copies unpredictably." >&2
+      echo "      Removing an app from $INSTALL_DIR is your call, not this" >&2
+      echo "      installer's, so its registration was left alone." >&2
+      kept=$((kept + 1))
+      continue
+    fi
+    if is_disposable_registration "$path"; then
+      "$LSREGISTER" -u "$path" >/dev/null 2>&1 || true
+      dropped=$((dropped + 1))
+    else
+      echo "WARN: $path claims $identifier and is outside every build root;" >&2
+      echo "      it was left registered." >&2
+      kept=$((kept + 1))
+    fi
+  done < <(registered_bundle_paths "$identifier")
+  "$LSREGISTER" -f "$keep" >/dev/null 2>&1 || true
+  echo "    Dropped $dropped stale registration(s); left $kept in place."
+}
+
+echo "==> Reconciling LaunchServices registrations"
+BUNDLE_IDENTIFIER="$(bundle_identifier_of "$INSTALLED_APP")"
+if [[ -z "$BUNDLE_IDENTIFIER" ]]; then
+  echo "FAIL: the installed bundle declares no CFBundleIdentifier, so nothing" >&2
+  echo "      can say which binary a click will resolve to." >&2
+  exit 65
+fi
+sweep_launch_services_registrations "$BUNDLE_IDENTIFIER" "$INSTALLED_APP"
+
+# Relaunch the way the user launches it. `open -a <path>` proves the file
+# exists and proves nothing about what a Dock click does; `open -b` goes
+# through the same resolution a click does. The app was quit above, so this is
+# a cold resolve rather than an activation of something already running --
+# which is the only version of this check that discriminates.
+echo "==> Relaunching by identifier $BUNDLE_IDENTIFIER"
+if ! open -b "$BUNDLE_IDENTIFIER"; then
+  echo "WARN: $BUNDLE_IDENTIFIER did not resolve; falling back to the path." >&2
+  if ! open -a "$INSTALLED_APP"; then
+    echo "WARN: installed cleanly but could not relaunch; start it from Finder." >&2
+  fi
 fi
 
 legacy_installed="$INSTALL_DIR/$LEGACY_PRODUCT_NAME.app"

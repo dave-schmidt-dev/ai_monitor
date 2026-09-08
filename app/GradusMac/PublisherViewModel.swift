@@ -89,6 +89,11 @@ public final class PublisherViewModel: ObservableObject {
     @Published public private(set) var lastSyncedAt: Date?
     @Published public private(set) var requiredICloudMode: RequiredICloudMode
     @Published public private(set) var connectedDevices: [DevicePresence] = []
+    /// Distinguishes "no phone is using Gradus right now" from "the presence
+    /// read never reached CloudKit". Both leave `connectedDevices` empty, and
+    /// collapsing them is what hid a permanently failing fetch behind an
+    /// ordinary-looking empty state.
+    @Published public private(set) var connectedDevicesUnavailable = false
 
     /// Device-local display preferences, mirroring `DashboardViewModel`'s on
     /// iOS down to the `UserDefaults` key names. They are deliberately *not*
@@ -328,8 +333,9 @@ public final class PublisherViewModel: ObservableObject {
         refreshBackgroundAgentState()
     }
 
-    public func updateConnectedDevices(_ devices: [DevicePresence]) {
+    public func updateConnectedDevices(_ devices: [DevicePresence], unavailable: Bool = false) {
         connectedDevices = devices
+        connectedDevicesUnavailable = unavailable
     }
 
     private func advancePresentationRevision() {

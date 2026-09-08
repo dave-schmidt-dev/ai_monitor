@@ -6,6 +6,12 @@ import Foundation
 public actor DevicePresenceDirectoryStore {
     private let client: any DevicePresenceClient
     public private(set) var devices: [DevicePresence] = []
+    /// True when the last read did not reach CloudKit. `devices` is empty in
+    /// that case too, so without this flag a hard server rejection is
+    /// indistinguishable from an idle phone -- which is exactly how a
+    /// permanently broken presence fetch stayed invisible through a shipped
+    /// build. Consumers must render the two states differently.
+    public private(set) var lastReadFailed = false
 
     public init(client: any DevicePresenceClient) {
         self.client = client
@@ -26,12 +32,15 @@ public actor DevicePresenceDirectoryStore {
                 _ = try? await client.delete(installationID: record.installationID)
             }
             devices = DevicePresenceDirectory.active(fetched, at: now)
+            lastReadFailed = false
             return true
         } catch {
             // An unavailable account/network must not leave stale presence in
             // the active-device UI. The next subscription/foreground refresh
-            // repopulates from CloudKit.
+            // repopulates from CloudKit. The empty list is reported as a
+            // failure rather than as "no devices" -- see `lastReadFailed`.
             devices = []
+            lastReadFailed = true
             return false
         }
     }

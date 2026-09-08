@@ -145,7 +145,16 @@ struct MacSettingsView: View {
             }
 
             Section("Connected Devices") {
-                if viewModel.connectedDevices.isEmpty {
+                if viewModel.connectedDevicesUnavailable {
+                    // Never fold a failed read into the empty state: they look
+                    // identical to the user, and that is how a presence fetch
+                    // that had never once succeeded went unnoticed.
+                    Label(
+                        "Couldn't read connected devices from iCloud",
+                        systemImage: "exclamationmark.icloud"
+                    )
+                    .foregroundStyle(.secondary)
+                } else if viewModel.connectedDevices.isEmpty {
                     Text("No active iPhone or iPad sessions")
                         .foregroundStyle(.secondary)
                 } else {
@@ -155,9 +164,14 @@ struct MacSettingsView: View {
                             : "iphone")
                     }
                 }
-                Text("Only foreground sessions active within the last ten minutes appear here.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text(
+                    """
+                    A device appears here while Gradus is open on it, and leaves when the app is \
+                    backgrounded or the screen locks.
+                    """
+                )
+                .font(.callout)
+                .foregroundStyle(.secondary)
             }
 
             Section("About") {

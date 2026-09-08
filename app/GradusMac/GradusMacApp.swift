@@ -286,7 +286,8 @@ final class PublishPipeline {
         guard let presenceDirectory else { return }
         _ = await presenceDirectory.refresh()
         let devices = await presenceDirectory.devices
-        viewModel.updateConnectedDevices(devices)
+        let unavailable = await presenceDirectory.lastReadFailed
+        viewModel.updateConnectedDevices(devices, unavailable: unavailable)
     }
 
     private static func producerMetadata() -> ProducerMetadata? {

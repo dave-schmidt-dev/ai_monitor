@@ -152,6 +152,40 @@ private let presenceZone = CKRecordZone.ID(zoneName: CloudKitConstants.zoneName,
     #expect(await directory.devices.isEmpty)
 }
 
+/// A failed read and an idle phone both leave `devices` empty. Collapsing them
+/// is what let a presence fetch that had never once succeeded in Production
+/// render as the ordinary "No active iPhone or iPad sessions" for months --
+/// every screenshot of the panel looked correct. `lastReadFailed` is the only
+/// thing separating the two, so it is asserted in both directions.
+@Test func directoryReportsAFailedReadDistinctlyFromAnEmptyOne() async {
+    let now = Date(timeIntervalSince1970: 100)
+    let client = PresenceClientStub()
+    let directory = DevicePresenceDirectoryStore(client: client)
+
+    // Reachable CloudKit, genuinely no devices: empty and *not* a failure.
+    #expect(await directory.refresh(now: now))
+    #expect(await directory.devices.isEmpty)
+    #expect(await !directory.lastReadFailed)
+
+    await client.setFailure(true)
+    #expect(await !directory.refresh(now: now))
+    #expect(await directory.devices.isEmpty)
+    #expect(await directory.lastReadFailed)
+
+    // And it clears again, so one transient failure does not pin the UI into
+    // an error state forever.
+    await client.setFailure(false)
+    await client.setRecords([
+        DevicePresence(
+            installationID: "323E4567-E89B-12D3-A456-426614174000", displayName: .iPhone,
+            expiresAt: now.addingTimeInterval(60)
+        )
+    ])
+    #expect(await directory.refresh(now: now))
+    #expect(await directory.devices.count == 1)
+    #expect(await !directory.lastReadFailed)
+}
+
 private final class LockBox: @unchecked Sendable {
     var value = 0
 }

@@ -3,7 +3,11 @@ import Foundation
 import GradusKit
 
 /// Real `ZoneChangesFetcher` conformance backed by
-/// `CKFetchRecordZoneChangesOperation` against `GradusZone` (T4.1/CR-4). The
+/// `CKFetchRecordZoneChangesOperation` against `GradusZone` (T4.1/CR-4).
+/// Lives in `Shared` because both platforms read `GradusZone` through it:
+/// iOS for delta sync, and the Mac for the presence directory (see
+/// `CKDevicePresenceClient.fetchAll`, which uses a nil-token fetch here rather
+/// than a `CKQuery` that the deployed schema cannot serve). The
 /// `CKServerChangeToken`<->`Data` bridging uses the exact `NSKeyedArchiver`/
 /// `NSKeyedUnarchiver` pattern Apple documents on `CKServerChangeToken`
 /// itself -- confirmed by reading the real SDK header, not guessed -- since

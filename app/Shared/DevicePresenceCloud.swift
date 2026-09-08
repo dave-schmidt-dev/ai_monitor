@@ -47,16 +47,34 @@ public struct CKDevicePresenceClient: DevicePresenceClient {
         _ = try await database.deleteRecord(withID: recordID)
     }
 
+    /// Authoritative full-zone read of the presence records.
+    ///
+    /// Deliberately *not* a `CKQuery`. A query with `NSPredicate(value: true)`
+    /// requires a QUERYABLE index on the record type's `recordName` system
+    /// field, and the deployed Production schema has none, so every fetch came
+    /// back `CKInternalErrorDomain 2015 "Field 'recordName' is not marked
+    /// queryable"` and Mac Settings rendered a permanently empty device list
+    /// (2026-09-08). A nil-token zone-changes fetch returns the same complete
+    /// snapshot, needs no index, and is the mechanism iOS already reads
+    /// presence with -- one path for both platforms under INV-9.
     public func fetchAll() async throws -> [DevicePresence] {
         guard let database else { throw DevicePresenceClientError.databaseUnavailable }
-        let query = CKQuery(
-            recordType: CloudKitConstants.devicePresenceRecordType,
-            predicate: NSPredicate(value: true)
-        )
-        let results = try await database.records(matching: query, inZoneWith: zoneID)
-        return results.matchResults.compactMap { _, result in
-            guard case let .success(record) = result else { return nil }
-            return try? DevicePresence(record: record)
+        let fetcher = CKZoneChangesFetcher(database: database, zoneID: zoneID)
+        switch await fetcher.fetchZoneChanges(sinceToken: nil) {
+        case let .successWithPresence(_, _, changedPresence, _, _):
+            return changedPresence
+        case .success:
+            return []
+        case .zoneNotFound, .zoneDeleted:
+            // `GradusZone` is Mac-owned and created idempotently. Before the
+            // first publish it legitimately does not exist, which is an empty
+            // directory rather than a read failure.
+            return []
+        case .changeTokenExpired, .failure:
+            // `.changeTokenExpired` cannot follow a nil token; treating it as a
+            // failure keeps the caller from reading a server fault as "no
+            // devices," which is the bug this method used to have.
+            throw DevicePresenceClientError.fetchFailed
         }
     }
 
@@ -106,4 +124,5 @@ public struct CKDevicePresenceClient: DevicePresenceClient {
 public enum DevicePresenceClientError: Error, Equatable {
     case databaseUnavailable
     case missingSaveResult
+    case fetchFailed
 }

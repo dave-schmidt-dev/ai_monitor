@@ -4,7 +4,7 @@ import Foundation
 /// over `Data` tokens, not `CKServerChangeToken` -- the token has no public
 /// initializer (can't be constructed in a test), so the real
 /// `CKFetchRecordZoneChangesOperation` + `NSKeyedArchiver` bridging lives in
-/// the platform-specific adapter (`CKZoneChangesFetcher` in GradusiOS); this
+/// the CloudKit adapter (`CKZoneChangesFetcher` in `app/Shared`); this
 /// protocol and its outcome are what the testable reconciliation logic
 /// (`DashboardViewModel`) actually depends on.
 public protocol ZoneChangesFetcher: Sendable {

@@ -16,7 +16,6 @@
 		09801C60B4E8FF2594CB8266 /* DevicePresenceCloudTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98F6CB296C90F289C788AF13 /* DevicePresenceCloudTests.swift */; };
 		0BA71EDF1661486CF726AE6B /* RuntimeLifecycle.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1E350C9676163BC22DD9C9E /* RuntimeLifecycle.swift */; };
 		0C5F7734F58B158602C9F4AF /* DashboardViewModel+Sync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 478E6CB932BAAB2F9617E20B /* DashboardViewModel+Sync.swift */; };
-		0E002EAAB48973CE5E2B0E4C /* CKZoneChangesFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 22F44963E42E6311FBCD5D53 /* CKZoneChangesFetcher.swift */; };
 		14D1DC14FD2722A4E9C48B7F /* exhaustedCompactCellsPad.1.png in Resources */ = {isa = PBXBuildFile; fileRef = CB6D4E80E55036E625838581 /* exhaustedCompactCellsPad.1.png */; };
 		1552AAD9F84B0A2A84A94070 /* densityLargePadPortraitAccessibility1.1.png in Resources */ = {isa = PBXBuildFile; fileRef = C1E7AB284BF9EC7B0B416238 /* densityLargePadPortraitAccessibility1.1.png */; };
 		16176CEBA05191C374B546DB /* MenuBarBucketTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1DD6C73B46120268D4C85F5F /* MenuBarBucketTests.swift */; };
@@ -134,6 +133,7 @@
 		8D07620FBB9160DAD411F498 /* listRowValueLight.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 13A5FC8850CE01888DD7CDA7 /* listRowValueLight.1.png */; };
 		8D465D9E764158D5D9036093 /* GradusKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8FFA51B03DE8DA722018E9CA /* GradusKit */; };
 		8DBDABEB8D8B9EBAA03E14AD /* DashboardSnapshotTests+EmptyStates.swift in Sources */ = {isa = PBXBuildFile; fileRef = 37BF8208042ADC5386E996E8 /* DashboardSnapshotTests+EmptyStates.swift */; };
+		8FD5396A710A51CD2C630FF3 /* CKZoneChangesFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945D4777AC3C4884A55C96BE /* CKZoneChangesFetcher.swift */; };
 		905D3F74031ADBBF45C5E08A /* providerDetailRendersAllWindowsDark.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 5A7549663B72325EB5FFCE7F /* providerDetailRendersAllWindowsDark.1.png */; };
 		90680B8CB51C08B9B813D4FD /* BackgroundAgentTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = C754E6F2BC06220E0D3DDA9A /* BackgroundAgentTestSupport.swift */; };
 		90F33C3550BD228A23D469E5 /* GradusRefreshAgentApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 12B11684A5D92598B5F73002 /* GradusRefreshAgentApp.swift */; };
@@ -196,6 +196,7 @@
 		C2A92D936F0B97AE76A7A4AD /* iconButtonSnapshotDark.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 276E36A086AED288C3432DF9 /* iconButtonSnapshotDark.1.png */; };
 		C46632E4AF77D3556E33D75F /* ProviderRanking.swift in Sources */ = {isa = PBXBuildFile; fileRef = D7DED0EBE9A35AD76A327674 /* ProviderRanking.swift */; };
 		C565853A7DF852D21EF44E78 /* densePadPortraitDark.1.png in Resources */ = {isa = PBXBuildFile; fileRef = E4917825AA69205E648400EC /* densePadPortraitDark.1.png */; };
+		C610287800CD7024105B8614 /* CKZoneChangesFetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 945D4777AC3C4884A55C96BE /* CKZoneChangesFetcher.swift */; };
 		C7190B7BFD1BF34117B6272C /* GradusKit in Frameworks */ = {isa = PBXBuildFile; productRef = E11D3653FC901E3C1096A5FB /* GradusKit */; };
 		C74CF17BF41E1D70057C1EB2 /* ListRowSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2C3E7C7520DAE18E7D4BE4 /* ListRowSnapshotTests.swift */; };
 		C775F6F91B765071DE464774 /* WalkthroughCaptureXCUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D54987E6FF59B5938C44010 /* WalkthroughCaptureXCUITests.swift */; };
@@ -428,7 +429,6 @@
 		21795607EC3DB4582CDD3475 /* ProviderRetryAccessibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProviderRetryAccessibilityTests.swift; sourceTree = "<group>"; };
 		22CAB472888607C347D6ADC2 /* LocalSyncSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalSyncSource.swift; sourceTree = "<group>"; };
 		22E9EDCA74D938789D0FD71D /* CloudKitDatabase.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudKitDatabase.swift; sourceTree = "<group>"; };
-		22F44963E42E6311FBCD5D53 /* CKZoneChangesFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKZoneChangesFetcher.swift; sourceTree = "<group>"; };
 		25811B1BB194D66F99783364 /* T25SchemaGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = T25SchemaGate.swift; sourceTree = "<group>"; };
 		276E36A086AED288C3432DF9 /* iconButtonSnapshotDark.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = iconButtonSnapshotDark.1.png; sourceTree = "<group>"; };
 		29D7D415C57CBE53ACD646AD /* GradusiOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GradusiOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -544,6 +544,7 @@
 		9203455F1ADD75D0E62E358E /* LegacyMigrationPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LegacyMigrationPresentationTests.swift; sourceTree = "<group>"; };
 		933C353023EBD56F520FB33B /* GradusMacProduction.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GradusMacProduction.entitlements; sourceTree = "<group>"; };
 		93FA3B5A1065DD371B063C93 /* PublishCoordinatorFailureDescriptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PublishCoordinatorFailureDescriptionTests.swift; sourceTree = "<group>"; };
+		945D4777AC3C4884A55C96BE /* CKZoneChangesFetcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CKZoneChangesFetcher.swift; sourceTree = "<group>"; };
 		96383F9133483D59F3463CB5 /* settingsViewWarnsWhenSystemNotificationsAreDeniedLight.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = settingsViewWarnsWhenSystemNotificationsAreDeniedLight.1.png; sourceTree = "<group>"; };
 		9665FE92F94D2664633B9A36 /* ExpectedPaceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpectedPaceTests.swift; sourceTree = "<group>"; };
 		966F71BF2668442EA2536D50 /* DensityLayoutSnapshotFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DensityLayoutSnapshotFixtures.swift; sourceTree = "<group>"; };
@@ -770,7 +771,6 @@
 				6B270DAE848461522EEA974A /* Assets.xcassets */,
 				5F921644EC255B8548BC067E /* CKCloudFetcher.swift */,
 				AC70DFCC7F8F1B737CFC5EC7 /* CKSubscriptionManager.swift */,
-				22F44963E42E6311FBCD5D53 /* CKZoneChangesFetcher.swift */,
 				C60F7BE7D1F7757A0BF28D4C /* DashboardDensity.swift */,
 				732847D4ECCFB37A36F5A83A /* DashboardView.swift */,
 				851236AC3CD7E98AA7FEDB69 /* DashboardView+DenseGrid.swift */,
@@ -1090,6 +1090,7 @@
 			isa = PBXGroup;
 			children = (
 				6CD2A7EEE9BC5667647B000A /* CardLayoutSolver.swift */,
+				945D4777AC3C4884A55C96BE /* CKZoneChangesFetcher.swift */,
 				B05C8F176108C96ED6428FC6 /* CloudKitSpike.swift */,
 				98B4FBEE1FE575C297ED2A0A /* DevicePresenceCloud.swift */,
 				D7DED0EBE9A35AD76A327674 /* ProviderRanking.swift */,
@@ -1846,6 +1847,7 @@
 				BC643296330DFFC4EBB27A1F /* BackgroundAgentManager.swift in Sources */,
 				77629B5E60B5C8D269848EF0 /* BackgroundAgentState.swift in Sources */,
 				60C9B5BC5459CF8ED03B3EB0 /* BackgroundAgentStatusObserver.swift in Sources */,
+				C610287800CD7024105B8614 /* CKZoneChangesFetcher.swift in Sources */,
 				88C8C9343FE8013A26314410 /* CardLayoutSolver.swift in Sources */,
 				CB7750BAC229F6B6CBDAE612 /* CloudKitDatabase.swift in Sources */,
 				3798F17A91B64A768EABF612 /* CloudKitSpike.swift in Sources */,
@@ -1887,7 +1889,7 @@
 				6E08A8E81E9A4C19389EAC98 /* AppDelegate.swift in Sources */,
 				4EABA3841A8B02C8999FC445 /* CKCloudFetcher.swift in Sources */,
 				EEDE44EE84280FB311CB2D27 /* CKSubscriptionManager.swift in Sources */,
-				0E002EAAB48973CE5E2B0E4C /* CKZoneChangesFetcher.swift in Sources */,
+				8FD5396A710A51CD2C630FF3 /* CKZoneChangesFetcher.swift in Sources */,
 				9DA882DB1E8D1FBC6EB3D53C /* CardLayoutSolver.swift in Sources */,
 				5EAA9646FB0E96C48388B99B /* CloudKitSpike.swift in Sources */,
 				167CF288EF2896C7CD8FF7D2 /* Colors.swift in Sources */,

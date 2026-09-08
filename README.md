@@ -829,6 +829,34 @@ During one Gradus implementation, repeated in-scope local validation commands sh
 
 Decision gates follow the G/A/R autonomy contract: `~/.agent/prompts/_shared/gar.md` (Green = do; Amber = do + ledger; Red = human-only). Never end a turn on a recoverable obstacle.
 
+### Two conventions this project learned by paying for them
+
+Both were derived from repeat incidents, not from style preference. Treat them as defaults
+for new work rather than as advice.
+
+**macOS attributes TCC grants to the responsible process, not the logical reader.** When a
+bundle launches a helper — a login agent, a nested privileged bridge, an XPC service — the
+permission prompt and the stored grant land on the *outermost* responsible identity, not on
+whichever binary actually calls `open()`. This cost three separate investigations here: the
+`~/Documents` `cdhash` saga, the credential bridge reading as a denied Vibe sign-in, and the
+Full Disk Access confusion that was only resolved by granting FDA to the outer `Gradus.app`
+and nothing else (see *Installing Gradus locally*). Design any new nested-helper arrangement
+assuming outermost-identity attribution from the start: decide up front which single bundle
+holds the grant, and make every helper's access flow through it. Do not plan to grant a
+helper its own permission and then discover you cannot.
+
+**No new App Store Connect mode ships without a captured response fixture in its test.**
+Apple's API schema is not reliably inferable from the documentation, and guessing it has
+produced wrong code three times in this repo — `allocate_identity.py` invented
+`testConfiguration.devices`, then invented `testDestinations`, and the app-record binding was
+misdiagnosed three separate ways before a real read settled it. The rule: before writing the
+parser, make one real read-only call through the registered broker consumer, commit the
+response shape as a fixture, and write the test against that fixture. A read-only ASC `GET`
+costs nothing and is not a publishing action; a wrong schema costs a submission queue wait.
+The same rule is why product/workflow questions here are settled by
+`bws-secret-exec gradus-app-store-connect -- --list-workflows` (or `--list-cloud-products`,
+`--list-app-records`) rather than by reasoning about what the API probably supports.
+
 ### Project layout
 
 - `gradus/providers/` — provider package:

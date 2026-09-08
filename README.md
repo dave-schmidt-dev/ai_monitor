@@ -580,6 +580,13 @@ Do not use the `Gradus iOS Internal TestFlight` Cloud workflow for delivery: the
 account's Cloud product is attached to the GradusMac app record, so its iOS
 builds cannot reach the Gradus AI beta group.
 
+Xcode Cloud is not a delivery path for this project. iOS ships through the local
+`app/archive-upload-ios.sh`, which routes by bundle ID and costs no Cloud
+minutes; the account's one Cloud product is bound to the GradusMac app record
+and cannot be rebound, so Cloud-built iOS builds are undeliverable. As of
+2026-09-08 all three workflows are disabled and the full local gate is the only
+authority confirming the snapshot baselines.
+
 Xcode Cloud validation is optional and non-gating. Its workflows use manual
 `main`-branch starts and remain disabled between diagnostics to prevent
 automatic billable runs. The credential-brokered

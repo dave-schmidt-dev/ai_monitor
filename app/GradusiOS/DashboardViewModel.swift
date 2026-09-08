@@ -22,40 +22,6 @@ public enum ICloudAvailabilityState: Equatable, Sendable {
     case tryAgain
 }
 
-enum RequiredICloudMigration {
-    static let modeKey = "requiredICloudMode"
-    static let versionKey = "requiredICloudModeVersion"
-    static let currentVersion = 1
-
-    static func migrate(
-        defaults: UserDefaults,
-        legacyKey: String,
-        writeMode: (UserDefaults, RequiredICloudMode) -> Void = { defaults, mode in
-            defaults.set(mode.rawValue, forKey: modeKey)
-            defaults.set(currentVersion, forKey: versionKey)
-        }
-    ) -> RequiredICloudMode {
-        let mode: RequiredICloudMode = if let stored = defaults.object(forKey: modeKey) as? String,
-                                          let storedMode = RequiredICloudMode(rawValue: stored) {
-            // The new authority wins if both generations are present. Re-write
-            // its version before removing the legacy value so a partial write
-            // remains safely re-runnable.
-            storedMode
-        } else if defaults.object(forKey: legacyKey) == nil {
-            .confirmed
-        } else {
-            defaults.bool(forKey: legacyKey) ? .confirmed : .awaitingConfirmation
-        }
-        writeMode(defaults, mode)
-        guard let committed = defaults.object(forKey: modeKey) as? String,
-              RequiredICloudMode(rawValue: committed) == mode,
-              defaults.integer(forKey: versionKey) == currentVersion
-        else { return mode }
-        defaults.removeObject(forKey: legacyKey)
-        return mode
-    }
-}
-
 /// The three distinct empty states the dashboard must never collapse
 /// (CV-5) -- each has its own copy, its own fix action, and its own
 /// snapshot baseline (T3.3/T3.5).
@@ -94,6 +60,12 @@ public final class DashboardViewModel: ObservableObject {
     @Published public private(set) var requiredICloudMode: RequiredICloudMode = .confirmed
     @Published public internal(set) var iCloudAvailability: ICloudAvailabilityState = .checkingICloud
     @Published public internal(set) var liveLifecycleNeedsRetry = false
+    /// True when the most recent CloudKit read failed. Cached providers stay on
+    /// screen -- CV-6 keeps the last-known dashboard visible -- so without this
+    /// flag a server rejection is indistinguishable from data that simply has
+    /// not changed. `liveLifecycleNeedsRetry` is not that signal: it drives
+    /// retry scheduling and no view reads it.
+    @Published public internal(set) var lastSyncFailed = false
     @Published public internal(set) var syncEnabled: Bool {
         didSet {
             guard syncEnabled != oldValue else { return }
@@ -101,6 +73,10 @@ public final class DashboardViewModel: ObservableObject {
             if syncEnabled {
                 synchronizeWidgetSnapshot()
             } else {
+                // Turning sync off is an answer, not a failure. Leaving the
+                // flag set would keep "couldn't refresh" on the header for a
+                // read the app is no longer attempting.
+                lastSyncFailed = false
                 clearWidgetSnapshot()
             }
         }

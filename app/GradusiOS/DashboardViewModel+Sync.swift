@@ -1,5 +1,6 @@
 import Foundation
 import GradusKit
+import os
 
 /// The CloudKit sync/reconciliation paths: push-driven delta sync, full
 /// fetch, and the single idempotent live-lifecycle reconciliation that both
@@ -42,10 +43,12 @@ extension DashboardViewModel {
         }
         switch result {
         case let .success(changed, deletedProviderNames, newToken):
+            lastSyncFailed = false
             reconcile(changed: changed, deletedProviderNames: deletedProviderNames)
             try? cache.saveChangeToken(newToken)
             commitCachedProvidersAndWidget(at: Date())
         case let .successWithPresence(changed, deletedProviderNames, _, _, newToken):
+            lastSyncFailed = false
             // Presence is consumed by the Mac directory. Keeping it as a
             // separately typed outcome here prevents a mobile-device deletion
             // from ever entering provider reconciliation.
@@ -69,6 +72,7 @@ extension DashboardViewModel {
             // resets to "waiting for first publish" rather than erroring,
             // and self-heals once the Mac republishes and the next
             // subscription notification arrives.
+            lastSyncFailed = false
             allProviders = []
             providers = []
             connectedSource = nil
@@ -77,8 +81,11 @@ extension DashboardViewModel {
             try? cache.saveChangeToken(nil)
             clearCacheAndWidget()
         case .failure:
-            // Leave state as-is; the next subscription-triggered sync retries.
-            break
+            // Leave the cached dashboard as-is; the next subscription-triggered
+            // sync retries. Both read paths report failure the same way, so the
+            // header cannot claim a delta sync succeeded when it did not.
+            Self.syncLogger.error("incremental sync failed for GradusZone")
+            lastSyncFailed = true
         }
     }
 
@@ -126,10 +133,24 @@ extension DashboardViewModel {
         }
     }
 
+    private static let syncLogger = Logger(subsystem: "com.zerodelta.gradus", category: "sync")
+
     private func performSync(using fetcher: CloudFetcher) async -> Bool {
         isSyncing = true
         defer { isSyncing = false }
-        guard let fetched = try? await fetcher.fetchAll() else { return false }
+        let fetched: [ProviderStatus]
+        do {
+            fetched = try await fetcher.fetchAll()
+        } catch {
+            // Leave the cached dashboard as-is (CV-6) but say so. Discarding
+            // this error with `try?` is how a full-zone read that never once
+            // succeeded could look identical to a quiet zone -- the exact
+            // failure mode that hid the Mac's presence bug until 2026-09-08.
+            Self.syncLogger.error("full sync failed: \(String(describing: error), privacy: .public)")
+            lastSyncFailed = true
+            return false
+        }
+        lastSyncFailed = false
         // Compare the complete cached set, not the filtered presentation set,
         // so hiding exhausted providers cannot turn an unchanged warning into
         // a fresh notification on the next full sync.

@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		01E5CEF57E0DBF4A0A034027 /* RequiredICloudMigration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89C059B8C4548A4C7B25A4DB /* RequiredICloudMigration.swift */; };
 		030E58C0FE4B6DA8AAC183C8 /* SnapshotTesting in Frameworks */ = {isa = PBXBuildFile; productRef = 610B804283CB7BBA940F5FFC /* SnapshotTesting */; };
 		03F6DDCCCD16DD8D518B1C75 /* dashboardColorsByPaceNotByPercentageRemaining.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 7390820BB42E2C2D5AB614C1 /* dashboardColorsByPaceNotByPercentageRemaining.1.png */; };
 		04E43AAD13E15DCD5A6A9781 /* SettingsViewSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9BF44C34E2606F782B908ECD /* SettingsViewSnapshotTests.swift */; };
@@ -230,6 +231,7 @@
 		DE7790C599C16492A0DD1AB1 /* GradusCredentialBridge.app in Embed Dependencies */ = {isa = PBXBuildFile; fileRef = 2CF77FD23BBBB24832E1A1FD /* GradusCredentialBridge.app */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		DF0E760BC775509ED194B7B0 /* DensityLayoutSnapshotFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 966F71BF2668442EA2536D50 /* DensityLayoutSnapshotFixtures.swift */; };
 		DF9231248603426062439828 /* dashboardRendersDenseCardsCompactLight.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 5607B8C4327DDE6D855FDE5C /* dashboardRendersDenseCardsCompactLight.1.png */; };
+		E09908407787BA0E81D44CC7 /* DashboardViewModelSyncFailureVisibilityTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D321757A9E1A52CCA278762 /* DashboardViewModelSyncFailureVisibilityTests.swift */; };
 		E102C0CAE62D102C482C20F1 /* settingsViewWarnsWhenSystemNotificationsAreDeniedLight.1.png in Resources */ = {isa = PBXBuildFile; fileRef = 96383F9133483D59F3463CB5 /* settingsViewWarnsWhenSystemNotificationsAreDeniedLight.1.png */; };
 		E329D8605326325F5E698163 /* LegacyRuntimeMigrator.swift in Sources */ = {isa = PBXBuildFile; fileRef = F89D25F9C23A2D32CC2504A3 /* LegacyRuntimeMigrator.swift */; };
 		E33864435B6297F9CB6078D8 /* WidgetSnapshotPublisher.swift in Sources */ = {isa = PBXBuildFile; fileRef = AFA82E79F71C729ECB4F2411 /* WidgetSnapshotPublisher.swift */; };
@@ -519,6 +521,7 @@
 		7919EE42F3B3433F57B1B6EC /* BackgroundAgentBridgeOutcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundAgentBridgeOutcomeTests.swift; sourceTree = "<group>"; };
 		7A587EF37495C6CA507D80F5 /* DashboardViewModel+CardLayoutPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "DashboardViewModel+CardLayoutPreference.swift"; sourceTree = "<group>"; };
 		7CAF320078579655D5EDF862 /* BridgeCookieParser.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeCookieParser.swift; sourceTree = "<group>"; };
+		7D321757A9E1A52CCA278762 /* DashboardViewModelSyncFailureVisibilityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardViewModelSyncFailureVisibilityTests.swift; sourceTree = "<group>"; };
 		7E55A2742E1EBD4597C12082 /* RefreshAgentBridgeOutcomeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RefreshAgentBridgeOutcomeTests.swift; sourceTree = "<group>"; };
 		7FB4C9056931FA6B47D052C6 /* densePadPortraitLight.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = densePadPortraitLight.1.png; sourceTree = "<group>"; };
 		7FDE0EEA5731FD11EC5D0B49 /* dashboardTruncatesPercentagesRatherThanRounding.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = dashboardTruncatesPercentagesRatherThanRounding.1.png; sourceTree = "<group>"; };
@@ -533,6 +536,7 @@
 		85314B67C9128617AD55CF6B /* SampleDataViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleDataViews.swift; sourceTree = "<group>"; };
 		87C08CD1C8DC992111B793AF /* mobileNavBarTitleWithTrailingIconButtonLight.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = mobileNavBarTitleWithTrailingIconButtonLight.1.png; sourceTree = "<group>"; };
 		892E8F0B9C8EB61CA2526A30 /* densityCompactPhoneAccessibility5.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = densityCompactPhoneAccessibility5.1.png; sourceTree = "<group>"; };
+		89C059B8C4548A4C7B25A4DB /* RequiredICloudMigration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequiredICloudMigration.swift; sourceTree = "<group>"; };
 		8A2568672FA1AA6C4CEC00C7 /* PipelineGuardTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PipelineGuardTests.swift; sourceTree = "<group>"; };
 		8B3CDDA3CFDB93003709A681 /* GradusiOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = GradusiOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		8DB5088B3E4B29318262D1D8 /* listRowToggleOnDark.1.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = listRowToggleOnDark.1.png; sourceTree = "<group>"; };
@@ -793,6 +797,7 @@
 				205857956B1F1198387896FB /* ProviderRowBalancedLayout.swift */,
 				BDFD6CD431EE85AE136D96BF /* ProviderStatus+Ranking.swift */,
 				C31443C6878ED30E75DD4AEC /* ProviderWindowSelection.swift */,
+				89C059B8C4548A4C7B25A4DB /* RequiredICloudMigration.swift */,
 				D1E350C9676163BC22DD9C9E /* RuntimeLifecycle.swift */,
 				A03D74C09F1E4833F6E3E150 /* SampleData.json */,
 				31A3E1E25595651B1F6D4BDC /* SampleDataMode.swift */,
@@ -1200,6 +1205,7 @@
 				37BF8208042ADC5386E996E8 /* DashboardSnapshotTests+EmptyStates.swift */,
 				2A8149E30488F918DE0FA5C7 /* DashboardSnapshotTests+SampleData.swift */,
 				F981B6544A15FD0B93AA224C /* DashboardViewModelAccountLifecycleTests.swift */,
+				7D321757A9E1A52CCA278762 /* DashboardViewModelSyncFailureVisibilityTests.swift */,
 				A5D5940496F98F78CEBA905C /* DashboardViewModelSyncFixtures.swift */,
 				321DD904CC11A718C6D6931C /* DashboardViewModelSyncTests.swift */,
 				A88EBD6C3985C15E8F6F3C8F /* DashboardViewModelTests.swift */,
@@ -1920,6 +1926,7 @@
 				A1973EC97AB94C07B3FD33BD /* ProviderStatus+Ranking.swift in Sources */,
 				F1405062866A1FF361013B1A /* ProviderWindowLabel.swift in Sources */,
 				4027FB108D2646B283AE36CE /* ProviderWindowSelection.swift in Sources */,
+				01E5CEF57E0DBF4A0A034027 /* RequiredICloudMigration.swift in Sources */,
 				0BA71EDF1661486CF726AE6B /* RuntimeLifecycle.swift in Sources */,
 				53D076932B7F4581DE4FFE29 /* SampleDataMode.swift in Sources */,
 				5E4DF970A1C64F45502B75F1 /* SampleDataSession.swift in Sources */,
@@ -2085,6 +2092,7 @@
 				6182CF096FA577D092A7AFF9 /* DashboardSnapshotTests+SampleData.swift in Sources */,
 				378D41469CE0E2E6B3EABBA7 /* DashboardSnapshotTests.swift in Sources */,
 				5FCA8E667700958E424A5B8F /* DashboardViewModelAccountLifecycleTests.swift in Sources */,
+				E09908407787BA0E81D44CC7 /* DashboardViewModelSyncFailureVisibilityTests.swift in Sources */,
 				BEF563E1FB1226500E87E99E /* DashboardViewModelSyncFixtures.swift in Sources */,
 				B9264C402BDA8314FD374E7C /* DashboardViewModelSyncTests.swift in Sources */,
 				A98B3A3884486038EFEB4C91 /* DashboardViewModelTests.swift in Sources */,

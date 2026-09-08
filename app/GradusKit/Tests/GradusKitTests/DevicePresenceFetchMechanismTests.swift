@@ -22,11 +22,19 @@ import Testing
 // The fix put both platforms on that one mechanism. Nothing in a unit test can
 // reproduce the server's rejection -- a fake `CKDatabase` will happily answer a
 // query -- so the only way to keep the regression out is to assert on the
-// source: the presence path must not reach for `CKQuery` again. If a future
-// change needs one, it has to add the Dashboard index and deploy it to
-// Production first, and deleting this test is the moment to think about that.
+// source: no read path may reach for `CKQuery` again. If a future change needs
+// one, it has to add the Dashboard index and deploy it to Production first, and
+// deleting this test is the moment to think about that.
+//
+// The ban is codebase-wide rather than scoped to presence. `CKCloudFetcher`
+// (iOS, `ProviderStatus`) had the identical shape on a live path; whether that
+// record type happened to carry the index was never determined, because indexes
+// are configured per record type and nothing in this repo tracks the schema.
+// Both reads now go through the zone-changes fetcher, so the question is moot
+// -- and a blanket ban is what keeps it moot.
 
 private let presenceClientFileName = "DevicePresenceCloud.swift"
+private let providerFetcherFileName = "CKCloudFetcher.swift"
 
 private func appSourceRoot(filePath: String = #filePath) -> URL {
     URL(fileURLWithPath: filePath)
@@ -68,28 +76,37 @@ private func productionSources(root: URL) -> [URL] {
     return enumerator.compactMap { $0 as? URL }.filter(isProductionSource)
 }
 
-@Test func presenceIsNeverReadWithACloudKitQuery() throws {
+@Test func noProductionSourceReadsGradusZoneWithACloudKitQuery() throws {
     let sources = productionSources(root: appSourceRoot())
     #expect(sources.count > 20, "expected to scan the app's production Swift sources")
 
-    var sawPresenceClient = false
     for file in sources {
         let contents = try strippingLineComments(String(contentsOf: file, encoding: .utf8))
-        guard contents.contains(CloudKitConstants.devicePresenceRecordType) else { continue }
-        sawPresenceClient = true
+        // `CKQuerySubscription(` does not match: the paren is what separates a
+        // query from the warning subscription, which is legitimate and stays.
         #expect(
             !contents.contains("CKQuery("),
             """
-            \(file.lastPathComponent) reads the presence record type with a CKQuery. That needs a \
-            QUERYABLE index on `recordName` which the deployed schema does not have, and CloudKit \
-            rejects the fetch with CKInternalErrorDomain 2015. Use the nil-token \
-            CKFetchRecordZoneChangesOperation path instead, or deploy the index first.
+            \(file.lastPathComponent) reads a GradusZone record type with a CKQuery. That needs a \
+            QUERYABLE index on `recordName`, which is untracked server-side state -- its absence on \
+            DevicePresence made CloudKit reject every fetch with CKInternalErrorDomain 2015. Use \
+            the nil-token CKFetchRecordZoneChangesOperation path instead, or deploy the index first.
             """
         )
     }
-    // Without this the scan would pass trivially if the record type constant
-    // were ever inlined or the file renamed out of the sweep.
-    #expect(sawPresenceClient, "expected at least one production file referencing the presence record type")
+}
+
+@Test func bothGuardedRecordTypesAreStillNamedInProductionSource() throws {
+    // A weak check, deliberately: it only proves the sweep is looking at a tree
+    // where both record types still exist. The two `#require`-on-filename tests
+    // below are what actually pin the read paths.
+    let sources = productionSources(root: appSourceRoot())
+    for recordType in [CloudKitConstants.devicePresenceRecordType, CloudKitConstants.recordType] {
+        let referencing = try sources.filter {
+            try strippingLineComments(String(contentsOf: $0, encoding: .utf8)).contains(recordType)
+        }
+        #expect(!referencing.isEmpty, "expected a production file referencing \(recordType)")
+    }
 }
 
 @Test func theSharedPresenceClientReadsThroughTheZoneChangesFetcher() throws {
@@ -103,6 +120,23 @@ private func productionSources(root: URL) -> [URL] {
         contents.contains("fetchZoneChanges(sinceToken: nil)"),
         """
         \(presenceClientFileName) no longer takes a full-zone snapshot through the zone-changes \
+        fetcher. A nil token is what makes that fetch authoritative rather than incremental, which \
+        is what `fetchAll()` promises its caller.
+        """
+    )
+}
+
+@Test func theSharedProviderFetcherReadsThroughTheZoneChangesFetcher() throws {
+    let sources = productionSources(root: appSourceRoot())
+    let fetcher = try #require(
+        sources.first { $0.lastPathComponent == providerFetcherFileName },
+        "\(providerFetcherFileName) is gone; the provider read path moved and this tripwire needs to follow it"
+    )
+    let contents = try strippingLineComments(String(contentsOf: fetcher, encoding: .utf8))
+    #expect(
+        contents.contains("fetchZoneChanges(sinceToken: nil)"),
+        """
+        \(providerFetcherFileName) no longer takes a full-zone snapshot through the zone-changes \
         fetcher. A nil token is what makes that fetch authoritative rather than incremental, which \
         is what `fetchAll()` promises its caller.
         """

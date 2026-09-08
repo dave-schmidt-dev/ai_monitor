@@ -15,10 +15,17 @@ import SwiftUI
 /// Renders nothing at all when there is no publish timestamp *and* no source,
 /// rather than showing a placeholder: an empty header is honest about a
 /// dashboard that has never synced, and the empty states already explain it.
+///
+/// `refreshFailed` is the one case where this line must not simply report an
+/// age: the cached dashboard stays on screen after a failed read (CV-6), so
+/// "synced 2m ago" would be a claim the app cannot support. It says so instead,
+/// and drops the computer name -- the least useful of the three facts here, and
+/// still in Settings -- to stay on one line.
 struct SyncStatusLine: View {
     let source: SyncSource?
     let publishedAt: Date?
     let now: Date
+    var refreshFailed = false
 
     var body: some View {
         if let renderedText {
@@ -33,15 +40,19 @@ struct SyncStatusLine: View {
     /// `nil` means "render nothing". The computer name is appended only when
     /// known, so a publish with no `SyncSource` still reports its age.
     var renderedText: String? {
+        if refreshFailed {
+            guard let publishedAt else { return "couldn't refresh" }
+            return "couldn't refresh · synced \(ageLabel(since: publishedAt, now: now)) ago"
+        }
         switch (publishedAt, source?.computerName) {
         case let (publishedAt?, computerName?):
-            "synced \(ageLabel(since: publishedAt, now: now)) ago · \(computerName)"
+            return "synced \(ageLabel(since: publishedAt, now: now)) ago · \(computerName)"
         case let (publishedAt?, nil):
-            "synced \(ageLabel(since: publishedAt, now: now)) ago"
+            return "synced \(ageLabel(since: publishedAt, now: now)) ago"
         case let (nil, computerName?):
-            computerName
+            return computerName
         case (nil, nil):
-            nil
+            return nil
         }
     }
 }

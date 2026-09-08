@@ -770,8 +770,8 @@ for ((index = 0; index < leg_count; index++)); do
     iphone_leg_index="$index"
   fi
 done
-[[ "$iphone_leg_index" -ge 0 && "${COUNTING_LEG_MINIMUMS[iphone_leg_index]}" -eq 177 ]] ||
-  fail "iPhone integrated-gate floor must remain exactly 177"
+[[ "$iphone_leg_index" -ge 0 && "${COUNTING_LEG_MINIMUMS[iphone_leg_index]}" -eq 211 ]] ||
+  fail "iPhone integrated-gate floor must remain exactly 211"
 iphone_ui_block="$(sed -n '/assert_counting_leg "GradusiOSUI"/,/CODE_SIGNING_ALLOWED=NO/p' "$GATE_SCRIPT")"
 [[ "$iphone_ui_block" == *"-only-testing:GradusiOSUITests"* ]] ||
   fail "dedicated iPhone UI leg is missing its explicit selector"

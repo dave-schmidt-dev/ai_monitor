@@ -199,7 +199,8 @@ struct DashboardContent: View {
                     SyncStatusLine(
                         source: viewModel.connectedSource,
                         publishedAt: viewModel.connectedSourcePublishedAt,
-                        now: now
+                        now: now,
+                        refreshFailed: viewModel.lastSyncFailed
                     )
                     IconButton(Icon.settings) {
                         showingSettings = true

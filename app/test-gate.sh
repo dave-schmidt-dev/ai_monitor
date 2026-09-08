@@ -64,14 +64,16 @@ COUNTING_LEG_REPORTERS=(
 # evidence can hide a zero-test result in the other.
 #
 # GradusiOS-iPhone's floor (index 6) is pinned to its exact integrated-gate
-# count (177) rather than a loose lower
-# bound, so a test silently dropping out of selection fails the gate instead
-# of hiding under slack. Raise it deliberately when adding tests there. The
-# leg mixes Swift Testing and XCTest in one target, so its reporter is
-# `aggregate-xctest-swift` (sum of both frameworks' max-seen counts, 142 + 20
-# here), not `xctest` (max across patterns) -- the latter would let the
-# smaller XCTest count silently ride under the larger Swift Testing one
-# without ever binding to the reported/floor-checked total.
+# count (211) rather than a loose lower bound, so a test silently dropping out
+# of selection fails the gate instead of hiding under slack. Raise it
+# deliberately when adding tests there -- and take the number from a real gate
+# run, not from the self-check's fixtures, which echo the declared floor back
+# and so always look like an exact match. The leg mixes Swift Testing and
+# XCTest in one target, so its reporter is `aggregate-xctest-swift` (sum of
+# both frameworks' max-seen counts, 188 + 23 here), not `xctest` (max across
+# patterns) -- the latter would let the smaller XCTest count silently ride
+# under the larger Swift Testing one without ever binding to the
+# reported/floor-checked total.
 #
 # The `swift-testing` (index 0) and `pytest` (index 1) floors read 2 until
 # 2026-08-31, against observed counts of 100 and 1077: those two legs would
@@ -90,7 +92,7 @@ COUNTING_LEG_REPORTERS=(
 # `GradusMacUI` (index 3) is pinned exactly, like index 6: it is a fixed
 # scenario set (menu, required-iCloud, quit lifecycle), so losing one is a lost
 # behavior rather than ordinary churn.
-COUNTING_LEG_MINIMUMS=(98 1000 170 4 15 12 177 3 9 10 12 6 5 5 15 5 5 4 31 12)
+COUNTING_LEG_MINIMUMS=(100 1000 170 4 15 12 211 3 9 10 12 6 5 5 15 5 5 4 31 12)
 COUNTING_LEG_SOURCES=(
   "GradusKit"
   "../tests"

@@ -16,6 +16,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from rich.console import Console
@@ -34,6 +35,9 @@ from gradus.__main__ import (
     _is_auth_error,
     _is_transient_probe_error,
     _launch_fix,
+    _legacy_claude_ownership,
+    _legacy_claude_snapshot_path,
+    _LegacyClaudeOwnership,
     _load_config,
     _merge_with_previous,
     _notify_warning,
@@ -1820,6 +1824,310 @@ class TestCredentialAwareRefresh(unittest.TestCase):
             self.assertIn("refresh: provider OpenCode Go complete", status)
             self.assertIn("refresh: completed", status)
             self.assertNotIn("raw-data-sentinel", status)
+
+    def test_installed_legacy_claude_owner_suppresses_initialization_and_fetch(self) -> None:
+        class ClaudeProvider:
+            init_count = 0
+            fetch_count = 0
+
+            def __init__(self) -> None:
+                type(self).init_count += 1
+
+            def fetch(self) -> ProviderSnapshot:
+                type(self).fetch_count += 1
+                return ProviderSnapshot(name="Claude", ok=True, source="api")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            state_dir = root / "Installed"
+            state_dir.mkdir()
+            observed = datetime.now(timezone.utc) - timedelta(seconds=20)
+            legacy_path = root / "snapshot-v2.json"
+            legacy_payload = {
+                "schema_version": 2,
+                "updated_at": observed.isoformat(),
+                "providers": [
+                    {
+                        "name": "Claude",
+                        "ok": True,
+                        "error": None,
+                        "windows": [],
+                        "data": {"session_percent_left": 72.5},
+                        "observed_at": observed.isoformat(),
+                        "probe_attempted_at": observed.isoformat(),
+                    }
+                ],
+            }
+            stderr = StringIO()
+
+            def fake_read(path: Path | None = None) -> dict | None:
+                return legacy_payload if path == legacy_path else None
+
+            with (
+                patch(
+                    "gradus.__main__.RUNTIME_PATHS",
+                    SimpleNamespace(mode="installed", public_state_root=state_dir),
+                ),
+                patch.dict(
+                    "gradus.__main__._PROVIDER_REGISTRY", {"Claude": ClaudeProvider}, clear=True
+                ),
+                patch(
+                    "gradus.__main__._legacy_claude_ownership",
+                    return_value=_LegacyClaudeOwnership.ACTIVE,
+                ),
+                patch("gradus.__main__._snapshot_state_dir", return_value=state_dir),
+                patch("gradus.__main__.read_prior_snapshot", side_effect=fake_read),
+                patch("gradus.__main__.set_headless"),
+                patch(
+                    "gradus.__main__._write_snapshot_versions",
+                    return_value=(True, True, True),
+                ) as write,
+                patch("gradus.__main__.sys.stderr", stderr),
+            ):
+                self.assertEqual(_legacy_claude_snapshot_path(), legacy_path)
+                result = _refresh_snapshot_once(tmp, None, False)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(ClaudeProvider.init_count, 0)
+            self.assertEqual(ClaudeProvider.fetch_count, 0)
+            self.assertEqual(
+                write.call_args.kwargs["projected_claude_entry"], legacy_payload["providers"][0]
+            )
+            status = stderr.getvalue()
+            self.assertIn("refresh: provider Claude projected from legacy owner", status)
+            self.assertNotIn("72.5", status)
+
+    def test_installed_legacy_claude_owner_uses_fixed_unavailable_without_fallback(self) -> None:
+        class ClaudeProvider:
+            init_count = 0
+
+            def __init__(self) -> None:
+                type(self).init_count += 1
+
+            def fetch(self) -> ProviderSnapshot:
+                raise AssertionError("legacy-owned Claude must not fetch")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "Installed"
+            state_dir.mkdir()
+            stderr = StringIO()
+            with (
+                patch(
+                    "gradus.__main__.RUNTIME_PATHS",
+                    SimpleNamespace(mode="installed", public_state_root=state_dir),
+                ),
+                patch(
+                    "gradus.__main__._legacy_claude_ownership",
+                    return_value=_LegacyClaudeOwnership.ACTIVE,
+                ),
+                patch("gradus.__main__._snapshot_state_dir", return_value=state_dir),
+                patch("gradus.__main__.read_prior_snapshot", return_value=None),
+                patch.dict(
+                    "gradus.__main__._PROVIDER_REGISTRY", {"Claude": ClaudeProvider}, clear=True
+                ),
+                patch("gradus.__main__.fetch_provider_snapshot") as fetch,
+                patch("gradus.__main__.set_headless"),
+                patch(
+                    "gradus.__main__._write_snapshot_versions",
+                    return_value=(True, True, True),
+                ) as write,
+                patch("gradus.__main__.sys.stderr", stderr),
+            ):
+                result = _refresh_snapshot_once(tmp, None, False)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(ClaudeProvider.init_count, 0)
+            fetch.assert_not_called()
+            projection = write.call_args.kwargs["projected_claude_entry"]
+            self.assertEqual(projection["error"], "legacy Claude snapshot unavailable")
+            self.assertEqual(projection["probe_attempted_at"], None)
+            self.assertIn(
+                "refresh: provider Claude unavailable from legacy owner", stderr.getvalue()
+            )
+
+    def test_uncertain_legacy_claude_ownership_suppresses_provider_fail_closed(self) -> None:
+        class ClaudeProvider:
+            init_count = 0
+
+            def __init__(self) -> None:
+                type(self).init_count += 1
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "Installed"
+            state_dir.mkdir()
+            stderr = StringIO()
+            with (
+                patch(
+                    "gradus.__main__.RUNTIME_PATHS",
+                    SimpleNamespace(mode="installed", public_state_root=state_dir),
+                ),
+                patch(
+                    "gradus.__main__._legacy_claude_ownership",
+                    return_value=_LegacyClaudeOwnership.UNCERTAIN,
+                ),
+                patch("gradus.__main__._snapshot_state_dir", return_value=state_dir),
+                patch("gradus.__main__.read_prior_snapshot", return_value=None),
+                patch.dict(
+                    "gradus.__main__._PROVIDER_REGISTRY", {"Claude": ClaudeProvider}, clear=True
+                ),
+                patch("gradus.__main__.fetch_provider_snapshot") as fetch,
+                patch("gradus.__main__.set_headless"),
+                patch(
+                    "gradus.__main__._write_snapshot_versions",
+                    return_value=(True, True, True),
+                ) as write,
+                patch("gradus.__main__.sys.stderr", stderr),
+            ):
+                result = _refresh_snapshot_once(tmp, None, False)
+
+            self.assertEqual(result, 0)
+            self.assertEqual(ClaudeProvider.init_count, 0)
+            fetch.assert_not_called()
+            self.assertEqual(
+                write.call_args.kwargs["projected_claude_entry"]["error"],
+                "legacy Claude snapshot unavailable",
+            )
+            self.assertIn(
+                "refresh: provider Claude unavailable; legacy ownership uncertain",
+                stderr.getvalue(),
+            )
+
+    def test_installed_legacy_claude_requires_loaded_and_not_disabled(self) -> None:
+        runtime = SimpleNamespace(mode="installed", public_state_root=Path("/tmp/Gradus/Installed"))
+        loaded = subprocess.CompletedProcess([], 0, "", "")
+        cases = (
+            (
+                'disabled services = {\n"local.gradus-snapshot" => disabled\n}',
+                _LegacyClaudeOwnership.INACTIVE,
+            ),
+            (
+                'disabled services = {\n"local.gradus-snapshot" => false\n}',
+                _LegacyClaudeOwnership.ACTIVE,
+            ),
+            (
+                'disabled services = {\n"local.gradus-snapshot" => true\n}',
+                _LegacyClaudeOwnership.INACTIVE,
+            ),
+            ("disabled services = {\n}", _LegacyClaudeOwnership.ACTIVE),
+        )
+        for output, expected in cases:
+            with (
+                self.subTest(output=output),
+                patch("gradus.__main__.RUNTIME_PATHS", runtime),
+                patch(
+                    "gradus.__main__.subprocess.run",
+                    side_effect=[loaded, subprocess.CompletedProcess([], 0, output, "")],
+                ) as run,
+            ):
+                self.assertIs(_legacy_claude_ownership(), expected)
+                self.assertEqual(run.call_count, 2)
+
+    def test_unloaded_or_noninstalled_legacy_claude_keeps_normal_behavior(self) -> None:
+        installed = SimpleNamespace(
+            mode="installed", public_state_root=Path("/tmp/Gradus/Installed")
+        )
+        with (
+            patch("gradus.__main__.RUNTIME_PATHS", installed),
+            patch(
+                "gradus.__main__.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 113, "", ""),
+            ) as run,
+        ):
+            self.assertIs(_legacy_claude_ownership(), _LegacyClaudeOwnership.INACTIVE)
+            run.assert_called_once()
+
+        source = SimpleNamespace(mode="source", public_state_root=Path("/tmp/project/.state"))
+        with (
+            patch("gradus.__main__.RUNTIME_PATHS", source),
+            patch("gradus.__main__.subprocess.run") as run,
+        ):
+            self.assertIs(_legacy_claude_ownership(), _LegacyClaudeOwnership.INACTIVE)
+            run.assert_not_called()
+
+    def test_first_legacy_claude_launchctl_uncertainty_fails_closed(self) -> None:
+        runtime = SimpleNamespace(mode="installed", public_state_root=Path("/tmp/Gradus/Installed"))
+        cases = (
+            subprocess.TimeoutExpired(["launchctl", "print"], 2),
+            OSError("launchctl unavailable"),
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess([], 64, "", ""),
+        )
+        for first_result in cases:
+            with (
+                self.subTest(first_result=first_result),
+                patch("gradus.__main__.RUNTIME_PATHS", runtime),
+                patch("gradus.__main__.subprocess.run", side_effect=[first_result]),
+            ):
+                self.assertIs(_legacy_claude_ownership(), _LegacyClaudeOwnership.UNCERTAIN)
+
+        with (
+            patch("gradus.__main__.RUNTIME_PATHS", runtime),
+            patch(
+                "gradus.__main__.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 113, "", ""),
+            ),
+        ):
+            self.assertIs(_legacy_claude_ownership(), _LegacyClaudeOwnership.INACTIVE)
+
+    def test_loaded_legacy_claude_with_unreadable_disabled_state_is_uncertain(self) -> None:
+        runtime = SimpleNamespace(mode="installed", public_state_root=Path("/tmp/Gradus/Installed"))
+        loaded = subprocess.CompletedProcess([], 0, "", "")
+        cases = (
+            subprocess.TimeoutExpired(["launchctl", "print-disabled"], 2),
+            subprocess.CompletedProcess([], 1, "", ""),
+            subprocess.CompletedProcess(
+                [],
+                0,
+                'disabled services = {\n"local.gradus-snapshot" => unknown\n}',
+                "",
+            ),
+            subprocess.CompletedProcess([], 0, "not a disabled-services map", ""),
+        )
+        for second_result in cases:
+            with (
+                self.subTest(second_result=second_result),
+                patch("gradus.__main__.RUNTIME_PATHS", runtime),
+                patch("gradus.__main__.subprocess.run", side_effect=[loaded, second_result]),
+            ):
+                self.assertIs(_legacy_claude_ownership(), _LegacyClaudeOwnership.UNCERTAIN)
+
+    def test_installed_inactive_legacy_claude_keeps_provider_fetch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            state_dir = Path(tmp) / "Installed"
+            state_dir.mkdir()
+            provider = MagicMock()
+            stderr = StringIO()
+            with (
+                patch(
+                    "gradus.__main__.RUNTIME_PATHS",
+                    SimpleNamespace(mode="installed", public_state_root=state_dir),
+                ),
+                patch(
+                    "gradus.__main__._legacy_claude_ownership",
+                    return_value=_LegacyClaudeOwnership.INACTIVE,
+                ),
+                patch("gradus.__main__._snapshot_state_dir", return_value=state_dir),
+                patch("gradus.__main__.read_prior_snapshot", return_value=None),
+                patch(
+                    "gradus.__main__.initialize_providers",
+                    return_value=([("Claude", provider)], []),
+                ),
+                patch(
+                    "gradus.__main__.fetch_provider_snapshot",
+                    return_value=ProviderSnapshot(name="Claude", ok=True, source="api"),
+                ) as fetch,
+                patch("gradus.__main__.set_headless"),
+                patch(
+                    "gradus.__main__._write_snapshot_versions",
+                    return_value=(True, True, True),
+                ),
+                patch("gradus.__main__.sys.stderr", stderr),
+            ):
+                result = _refresh_snapshot_once(tmp, None, False)
+
+            self.assertEqual(result, 0)
+            fetch.assert_called_once_with("Claude", provider, False)
+            self.assertIn("refresh: provider Claude started", stderr.getvalue())
 
     def test_refresh_is_explicit_single_flight_progress_visible_and_one_probe(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

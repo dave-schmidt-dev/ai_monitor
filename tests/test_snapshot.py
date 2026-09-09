@@ -31,6 +31,87 @@ INSTALLED_SNAPSHOT_SUFFIX = "Library/Application Support/Gradus/Installed/snapsh
 LEGACY_MIRROR_SUFFIX = "Library/Application Support/Gradus/snapshot-v2.json"
 
 
+class ProjectedLegacyClaudeTests(unittest.TestCase):
+    @staticmethod
+    def _entry(at: datetime) -> dict[str, object]:
+        return {
+            "name": "Claude",
+            "ok": True,
+            "error": None,
+            "windows": [
+                {
+                    "id": "five_hour",
+                    "percent_left": 64.5,
+                    "reset_iso": (at + timedelta(hours=2)).isoformat(),
+                    "window_hours": 5.0,
+                    "pace_delta": -0.125,
+                }
+            ],
+            "data": {"session_percent_left": 64.5, "primary_reset": "in 2h"},
+            "observed_at": (at - timedelta(seconds=40)).isoformat(),
+            "probe_attempted_at": (at - timedelta(seconds=20)).isoformat(),
+        }
+
+    @classmethod
+    def _payload(cls, at: datetime) -> dict[str, object]:
+        return {
+            "schema_version": 2,
+            "updated_at": at.isoformat(),
+            "providers": [cls._entry(at)],
+        }
+
+    def test_projected_legacy_claude_entry_is_exact_in_v1_and_v2(self) -> None:
+        legacy_at = NOW.replace(tzinfo=timezone.utc) - timedelta(seconds=30)
+        refresh_at = NOW.replace(tzinfo=timezone.utc)
+        expected = self._entry(legacy_at)
+        projected = snap.project_legacy_claude_entry(self._payload(legacy_at), refresh_at)
+        self.assertEqual(projected, expected)
+
+        healthy_network_fallback = _ps(
+            "Claude", True, data={"session_percent_left": 99, "primary_reset": "in 5h"}
+        )
+        for builder in (snap.build_snapshot_payload, snap.build_snapshot_v2_payload):
+            with self.subTest(builder=builder.__name__):
+                payload = builder(
+                    [healthy_network_fallback],
+                    refresh_at,
+                    projected_claude_entry=projected,
+                )
+                claude = next(entry for entry in payload["providers"] if entry["name"] == "Claude")
+                self.assertEqual(claude, expected)
+                self.assertEqual(payload["updated_at"], refresh_at.isoformat())
+
+    def test_projected_legacy_claude_rejects_missing_malformed_duplicate_and_stale(self) -> None:
+        now = NOW.replace(tzinfo=timezone.utc)
+        fresh = self._payload(now - timedelta(seconds=30))
+        duplicate = copy.deepcopy(fresh)
+        duplicate["providers"].append(copy.deepcopy(duplicate["providers"][0]))
+        malformed_entry = copy.deepcopy(fresh)
+        malformed_entry["providers"][0]["error"] = "x" * 201
+        malformed_entry["providers"][0]["unexpected"] = True
+        cases = (
+            None,
+            {"schema_version": 1, "updated_at": now.isoformat(), "providers": []},
+            {**fresh, "updated_at": NOW.isoformat()},
+            {**fresh, "providers": []},
+            duplicate,
+            malformed_entry,
+            self._payload(now - timedelta(seconds=snap.STALE_THRESHOLD_SECONDS)),
+        )
+        for legacy in cases:
+            with self.subTest(legacy=legacy):
+                self.assertIsNone(snap.project_legacy_claude_entry(legacy, now))
+
+    def test_projected_legacy_claude_unavailable_entry_prevents_fallback(self) -> None:
+        now = NOW.replace(tzinfo=timezone.utc)
+        unavailable = snap.legacy_claude_unavailable_entry()
+        network = _ps("Claude", True, data={"session_percent_left": 99})
+        for builder in (snap.build_snapshot_payload, snap.build_snapshot_v2_payload):
+            payload = builder([network], now, projected_claude_entry=unavailable)
+            claude = next(entry for entry in payload["providers"] if entry["name"] == "Claude")
+            self.assertEqual(claude, unavailable)
+
+
 class InstalledSnapshotParityTests(unittest.TestCase):
     """One canonical installed snapshot across every surface that names one.
 

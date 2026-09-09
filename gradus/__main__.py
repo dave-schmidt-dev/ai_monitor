@@ -10,6 +10,7 @@ import json
 import logging
 import math
 import os
+import re
 import select
 import stat
 import subprocess
@@ -22,13 +23,14 @@ from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed
 from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 
 from rich.console import Console
 from rich.live import Live
 
 from .history import append_history_record, query_history, recent_auth_failure_count
-from .paths import RUNTIME_PATHS
+from .paths import INSTALLED_MODE, RUNTIME_PATHS
 from .providers import (
     ProviderSnapshot,
     fetch_provider_snapshot,
@@ -48,7 +50,9 @@ from .snapshot import (
     build_snapshot_v2_payload,
     is_antigravity_auth_failure,
     is_antigravity_auth_retry,
+    legacy_claude_unavailable_entry,
     percent_is_valid,
+    project_legacy_claude_entry,
     read_prior_snapshot,
     warning_membership,
     write_snapshot,
@@ -102,6 +106,14 @@ CLAUDE_MIN_PROBE_INTERVAL_SECONDS = 600
 # A real 429 means the endpoint's rolling allowance has not recovered yet.
 # Back off for an hour instead of retrying every normal Claude interval.
 CLAUDE_RATE_LIMIT_BACKOFF_SECONDS = 3600
+_LEGACY_CLAUDE_LAUNCHD_LABEL = "local.gradus-snapshot"
+_LAUNCHCTL_TIMEOUT_SECONDS = 2.0
+
+
+class _LegacyClaudeOwnership(Enum):
+    INACTIVE = "inactive"
+    ACTIVE = "active"
+    UNCERTAIN = "uncertain"
 
 
 class _CanonicalProviderDeferred:
@@ -128,6 +140,64 @@ class _CanonicalClaudeCooldown(_CanonicalProviderDeferred):
 
     def __init__(self, entry: Mapping[str, object]) -> None:
         super().__init__("Claude", entry)
+
+
+def _legacy_claude_snapshot_path() -> Path:
+    """Return the retired producer's public schema-v2 mirror path."""
+    return RUNTIME_PATHS.public_state_root.parent / "snapshot-v2.json"
+
+
+def _legacy_claude_ownership() -> _LegacyClaudeOwnership:
+    """Return the installed legacy job's fail-closed Claude ownership state."""
+    if RUNTIME_PATHS.mode != INSTALLED_MODE:
+        return _LegacyClaudeOwnership.INACTIVE
+    domain = f"gui/{os.getuid()}"
+    try:
+        loaded = subprocess.run(
+            ["/bin/launchctl", "print", f"{domain}/{_LEGACY_CLAUDE_LAUNCHD_LABEL}"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=_LAUNCHCTL_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return _LegacyClaudeOwnership.UNCERTAIN
+    if loaded.returncode != 0:
+        return (
+            _LegacyClaudeOwnership.INACTIVE
+            if loaded.returncode == 113
+            else _LegacyClaudeOwnership.UNCERTAIN
+        )
+    try:
+        disabled = subprocess.run(
+            ["/bin/launchctl", "print-disabled", domain],
+            capture_output=True,
+            text=True,
+            timeout=_LAUNCHCTL_TIMEOUT_SECONDS,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return _LegacyClaudeOwnership.UNCERTAIN
+    if disabled.returncode != 0:
+        return _LegacyClaudeOwnership.UNCERTAIN
+    if not re.search(r"disabled services\s*=\s*\{", disabled.stdout) or "}" not in disabled.stdout:
+        return _LegacyClaudeOwnership.UNCERTAIN
+    match = re.search(
+        rf'(?m)^\s*"?{re.escape(_LEGACY_CLAUDE_LAUNCHD_LABEL)}"?\s*=>\s*'
+        r"([^\s,}]+)\s*,?\s*$",
+        disabled.stdout,
+    )
+    if match is None:
+        return (
+            _LegacyClaudeOwnership.UNCERTAIN
+            if _LEGACY_CLAUDE_LAUNCHD_LABEL in disabled.stdout
+            else _LegacyClaudeOwnership.ACTIVE
+        )
+    if match.group(1) == "false":
+        return _LegacyClaudeOwnership.ACTIVE
+    if match.group(1) in {"disabled", "true"}:
+        return _LegacyClaudeOwnership.INACTIVE
+    return _LegacyClaudeOwnership.UNCERTAIN
 
 
 def _canonical_entry(
@@ -814,6 +884,7 @@ def _write_snapshot_versions(
     lock_timeout: float | None = None,
     lock_poll_interval: float = 0.1,
     journal_history: bool = False,
+    projected_claude_entry: Mapping[str, object] | None = None,
 ) -> tuple[bool, bool] | tuple[bool, bool, bool]:
     """Write v1 and v2 independently, optionally journaling committed v2.
 
@@ -862,6 +933,7 @@ def _write_snapshot_versions(
                 when,
                 prior=read_prior_snapshot(SNAPSHOT_PATH),
                 prior_auth_failures=prior_auth_failures,
+                projected_claude_entry=projected_claude_entry,
             ),
             # Passed explicitly. `write_snapshot`'s default binds `snapshot.py`'s
             # module-level SNAPSHOT_PATH at import, so omitting it made the read
@@ -886,6 +958,7 @@ def _write_snapshot_versions(
             when,
             prior=read_prior_snapshot(SNAPSHOT_V2_PATH),
             prior_auth_failures=prior_auth_failures,
+            projected_claude_entry=projected_claude_entry,
         )
         v2_result = write_snapshot(
             v2_payload,
@@ -1040,12 +1113,35 @@ def _refresh_snapshot_once(
         # credential-aware provider/session behavior.
         set_headless(False)
         prior_payload = read_prior_snapshot(SNAPSHOT_V2_PATH)
-        providers, cleanup = initialize_providers(cwd, enabled_providers)
+        probe_time = datetime.now().astimezone()
+        projected_claude_entry: Mapping[str, object] | None = None
+        providers_to_initialize = enabled_providers
+        legacy_ownership = _LegacyClaudeOwnership.INACTIVE
+        if RUNTIME_PATHS.mode == INSTALLED_MODE:
+            _refresh_progress("checking legacy Claude ownership")
+            legacy_ownership = _legacy_claude_ownership()
+        if legacy_ownership is not _LegacyClaudeOwnership.INACTIVE:
+            if legacy_ownership is _LegacyClaudeOwnership.ACTIVE:
+                projected_claude_entry = project_legacy_claude_entry(
+                    read_prior_snapshot(_legacy_claude_snapshot_path()), probe_time
+                )
+            if projected_claude_entry is None:
+                projected_claude_entry = legacy_claude_unavailable_entry()
+                if legacy_ownership is _LegacyClaudeOwnership.UNCERTAIN:
+                    _refresh_progress("provider Claude unavailable; legacy ownership uncertain")
+                else:
+                    _refresh_progress("provider Claude unavailable from legacy owner")
+            else:
+                _refresh_progress("provider Claude projected from legacy owner")
+            if enabled_providers is None:
+                providers_to_initialize = set(_PROVIDER_REGISTRY) - {"Claude"}
+            else:
+                providers_to_initialize = set(enabled_providers) - {"Claude"}
+        providers, cleanup = initialize_providers(cwd, providers_to_initialize)
         # launchd owns the producer tick while this path assigns each provider
         # a stable cadence. Deferred canonical results still flow through the
         # normal builders, so every invocation commits one coherent snapshot.
         # Claude's existing cooldown/backoff remains authoritative.
-        probe_time = datetime.now().astimezone()
         providers = _schedule_refresh_providers(
             providers,
             prior_payload,
@@ -1097,6 +1193,7 @@ def _refresh_snapshot_once(
                 else lock_poll_interval
             ),
             journal_history=True,
+            projected_claude_entry=projected_claude_entry,
         )
         success = v1_ok and v2_ok and history_ok
         _refresh_progress("completed" if success else "failed")

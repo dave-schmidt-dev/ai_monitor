@@ -78,6 +78,8 @@ ANTIGRAVITY_AUTH_RETRY_MESSAGE = "Antigravity refresh retrying; values may be st
 # dropping it would reclassify the tick for `history.py` and `__main__.py`.
 COPILOT_PROBE_RETRY_MESSAGE = "Copilot probe timed out; showing cached values"
 ANTIGRAVITY_AUTH_ERROR_MARKER = "Antigravity session expired"
+LEGACY_CLAUDE_UNAVAILABLE_ERROR = "legacy Claude snapshot unavailable"
+_LEGACY_CLAUDE_ENTRY_MAX_BYTES = 16_384
 
 
 def is_antigravity_auth_failure(snapshot: object) -> bool:
@@ -1238,6 +1240,152 @@ def _parse_aware_iso_timestamp(value: object) -> datetime | None:
         return None
 
 
+def legacy_claude_unavailable_entry() -> dict:
+    """Return the fixed fail-closed entry used while the legacy job owns Claude."""
+    return {
+        "name": "Claude",
+        "ok": False,
+        "error": LEGACY_CLAUDE_UNAVAILABLE_ERROR,
+        "windows": [],
+        "data": {},
+        "observed_at": None,
+        "probe_attempted_at": None,
+    }
+
+
+def _bounded_legacy_claude_entry(entry: object, *, allow_unavailable: bool = False) -> dict | None:
+    """Validate and copy one canonical, credential-free Claude entry."""
+    if not isinstance(entry, Mapping):
+        return None
+    if allow_unavailable and dict(entry) == legacy_claude_unavailable_entry():
+        return legacy_claude_unavailable_entry()
+    required_keys = {
+        "name",
+        "ok",
+        "error",
+        "windows",
+        "data",
+        "observed_at",
+        "probe_attempted_at",
+    }
+    if set(entry) != required_keys or entry.get("name") != "Claude":
+        return None
+    ok = entry.get("ok")
+    error = entry.get("error")
+    if not isinstance(ok, bool):
+        return None
+    if ok:
+        if error is not None:
+            return None
+    elif error is not None and (not isinstance(error, str) or not error or len(error) > 200):
+        return None
+
+    observed_at = entry.get("observed_at")
+    probe_attempted_at = entry.get("probe_attempted_at")
+    if (
+        (observed_at is not None and _parse_aware_iso_timestamp(observed_at) is None)
+        or (ok and _parse_aware_iso_timestamp(observed_at) is None)
+        or _parse_aware_iso_timestamp(probe_attempted_at) is None
+    ):
+        return None
+
+    data = entry.get("data")
+    if not isinstance(data, Mapping) or not set(data).issubset(SAFE_DATA_KEYS):
+        return None
+    if any(
+        value is not None and not isinstance(value, (str, bool, int, float))
+        for value in data.values()
+    ):
+        return None
+    safe_data = {key: _json_safe_value(value) for key, value in data.items()}
+    if any(value is _UNSAFE_JSON for value in safe_data.values()):
+        return None
+
+    windows = entry.get("windows")
+    if not isinstance(windows, list):
+        return None
+    allowed_window_ids = frozenset(spec.window_id for spec in V2_WINDOW_SPECS["Claude"])
+    required_window_keys = {"id", "percent_left", "reset_iso", "window_hours", "pace_delta"}
+    seen_window_ids: set[str] = set()
+    safe_windows: list[dict] = []
+    for window in windows:
+        if not isinstance(window, Mapping) or set(window) != required_window_keys:
+            return None
+        window_id = window.get("id")
+        percent_left = window.get("percent_left")
+        reset_iso = window.get("reset_iso")
+        window_hours = window.get("window_hours")
+        pace_delta = window.get("pace_delta")
+        if (
+            not isinstance(window_id, str)
+            or window_id not in allowed_window_ids
+            or window_id in seen_window_ids
+            or not percent_is_valid(percent_left)
+            or (reset_iso is not None and _parse_aware_iso_timestamp(reset_iso) is None)
+            or not isinstance(window_hours, (int, float))
+            or isinstance(window_hours, bool)
+            or not math.isfinite(window_hours)
+            or window_hours <= 0
+            or (
+                pace_delta is not None
+                and (
+                    not isinstance(pace_delta, (int, float))
+                    or isinstance(pace_delta, bool)
+                    or not math.isfinite(pace_delta)
+                )
+            )
+        ):
+            return None
+        seen_window_ids.add(window_id)
+        safe_windows.append(
+            {
+                "id": window_id,
+                "percent_left": percent_left,
+                "reset_iso": reset_iso,
+                "window_hours": window_hours,
+                "pace_delta": pace_delta,
+            }
+        )
+
+    projected = {
+        "name": "Claude",
+        "ok": ok,
+        "error": error,
+        "windows": safe_windows,
+        "data": safe_data,
+        "observed_at": observed_at,
+        "probe_attempted_at": probe_attempted_at,
+    }
+    try:
+        encoded = json.dumps(projected, ensure_ascii=True, allow_nan=False, separators=(",", ":"))
+    except (TypeError, ValueError):
+        return None
+    return projected if len(encoded.encode("utf-8")) <= _LEGACY_CLAUDE_ENTRY_MAX_BYTES else None
+
+
+def project_legacy_claude_entry(payload: object, now: datetime) -> dict | None:
+    """Project one fresh schema-v2 legacy Claude entry across the trust boundary."""
+    current = now if now.tzinfo is not None and now.utcoffset() is not None else None
+    if current is None or not isinstance(payload, Mapping) or payload.get("schema_version") != 2:
+        return None
+    updated_at = _parse_aware_iso_timestamp(payload.get("updated_at"))
+    providers = payload.get("providers")
+    if updated_at is None or not isinstance(providers, list):
+        return None
+    try:
+        age = (current - updated_at).total_seconds()
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not 0 <= age < STALE_THRESHOLD_SECONDS:
+        return None
+    matches = [
+        entry for entry in providers if isinstance(entry, Mapping) and entry.get("name") == "Claude"
+    ]
+    if len(matches) != 1:
+        return None
+    return _bounded_legacy_claude_entry(matches[0])
+
+
 def _is_fresh_retained_entry(
     entry: Mapping[str, object],
     publish_time: datetime,
@@ -1319,6 +1467,7 @@ def _build_snapshot_payload(
     updated_at: datetime,
     *,
     prior: dict | None = None,
+    projected_claude_entry: Mapping[str, object] | None = None,
     schema_version: int,
     specs_by_provider: Mapping[str, tuple[WindowSpec, ...]],
     prior_auth_failures: int = 0,
@@ -1364,6 +1513,12 @@ def _build_snapshot_payload(
     fallback_observed_at = local_iso(prior_updated) if prior_updated is not None else None
 
     providers: list[dict] = []
+    bounded_claude_projection = None
+    if projected_claude_entry is not None:
+        bounded_claude_projection = (
+            _bounded_legacy_claude_entry(projected_claude_entry, allow_unavailable=True)
+            or legacy_claude_unavailable_entry()
+        )
 
     def _synthetic_entry(
         snap: ProviderSnapshot | None,
@@ -1492,6 +1647,9 @@ def _build_snapshot_payload(
         return None
 
     for name in CANONICAL_PROVIDERS():
+        if name == "Claude" and bounded_claude_projection is not None:
+            providers.append(bounded_claude_projection)
+            continue
         snap = by_name.get(name)
         if snap is None:
             providers.append(
@@ -1589,12 +1747,14 @@ def build_snapshot_payload(
     *,
     prior: dict | None = None,
     prior_auth_failures: int = 0,
+    projected_claude_entry: Mapping[str, object] | None = None,
 ) -> dict:
     """Build the stable schema-v1 router snapshot payload."""
     return _build_snapshot_payload(
         snapshots,
         updated_at,
         prior=prior,
+        projected_claude_entry=projected_claude_entry,
         schema_version=SCHEMA_VERSION,
         specs_by_provider=WINDOW_SPECS,
         prior_auth_failures=prior_auth_failures,
@@ -1607,12 +1767,14 @@ def build_snapshot_v2_payload(
     *,
     prior: dict | None = None,
     prior_auth_failures: int = 0,
+    projected_claude_entry: Mapping[str, object] | None = None,
 ) -> dict:
     """Build the parallel schema-v2 router snapshot payload."""
     return _build_snapshot_payload(
         snapshots,
         updated_at,
         prior=prior,
+        projected_claude_entry=projected_claude_entry,
         schema_version=SCHEMA_VERSION_V2,
         specs_by_provider=V2_WINDOW_SPECS,
         prior_auth_failures=prior_auth_failures,

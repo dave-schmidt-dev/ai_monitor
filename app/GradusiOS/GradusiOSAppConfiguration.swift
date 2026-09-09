@@ -6,6 +6,9 @@ import GradusKit
 /// on-disk cache locations, UI-test/sample-data seeding, and the launch-mode
 /// predicates the scene and lifecycle methods gate on.
 extension GradusiOSApp {
+    /// Both independent lifecycle paths write to this one private receipt.
+    static let pushDiagnostics: any PushDiagnosticsRecording = PushDiagnostics(directory: cacheDirectory())
+
     static func makeCloudKitDependencies() -> CloudKitDependencies {
         guard CloudKitRuntimeConfiguration.currentValue else { return .offline }
 
@@ -16,7 +19,8 @@ extension GradusiOSApp {
         let zoneChangesFetcher = CKZoneChangesFetcher(database: database, zoneID: zoneID)
         let accountSource = ContainerAccountStatusSource(containerIdentifier: CloudKitConstants.containerIdentifier)
         let subscriptionManager = CKSubscriptionManager(
-            database: CKSubscriptionDatabaseAdapter(database: database), zoneID: zoneID
+            database: CKSubscriptionDatabaseAdapter(database: database), zoneID: zoneID,
+            pushDiagnostics: pushDiagnostics
         )
         let presenceClient = CKDevicePresenceClient(database: database, zoneID: zoneID)
         return CloudKitDependencies(

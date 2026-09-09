@@ -1,5 +1,123 @@
+import Foundation
 import UIKit
 import UserNotifications
+
+/// The only lifecycle boundaries recorded for silent-push diagnosis. Values
+/// are intentionally fixed so the receipt cannot accidentally acquire data
+/// from an APNs token, notification payload, or CloudKit error.
+public enum PushDiagnosticStage: String, Codable, Sendable {
+    case apnsRegistration
+    case zoneSubscriptionSave
+    case remoteNotificationEntry
+    case remoteNotificationCompletion
+}
+
+/// Fixed outcome values paired with `PushDiagnosticStage` in the receipt.
+public enum PushDiagnosticStatus: String, Codable, Sendable {
+    case success
+    case failure
+    case received
+    case newData
+}
+
+/// Test seam shared by the UIKit delegate and the CloudKit subscription path.
+public protocol PushDiagnosticsRecording: Sendable {
+    func record(stage: PushDiagnosticStage, status: PushDiagnosticStatus)
+}
+
+public struct PushDiagnosticEvent: Codable, Equatable, Sendable {
+    public let stage: PushDiagnosticStage
+    public let status: PushDiagnosticStatus
+    public let timestamp: String
+}
+
+public struct PushDiagnosticsReceipt: Codable, Equatable, Sendable {
+    public let schemaVersion: Int
+    public let events: [PushDiagnosticEvent]
+}
+
+/// Private, bounded, best-effort receipt for observing silent-push lifecycle
+/// boundaries on a device. The file contains only schema version, fixed enums,
+/// and UTC timestamps; callers never pass payloads, tokens, or errors here.
+public final class PushDiagnostics: PushDiagnosticsRecording, @unchecked Sendable {
+    public static let schemaVersion = 1
+    private static let maximumEvents = 32
+
+    public let fileURL: URL
+    private let now: @Sendable () -> Date
+    private let lock = NSLock()
+
+    public init(
+        directory: URL,
+        filename: String = "push-diagnostics.json",
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        fileURL = directory.appendingPathComponent(filename)
+        self.now = now
+    }
+
+    public init(
+        fileURL: URL,
+        now: @escaping @Sendable () -> Date = { Date() }
+    ) {
+        self.fileURL = fileURL
+        self.now = now
+    }
+
+    public func record(stage: PushDiagnosticStage, status: PushDiagnosticStatus) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        var events = loadReceiptLocked()?.events ?? []
+        events.append(
+            PushDiagnosticEvent(
+                stage: stage,
+                status: status,
+                timestamp: Self.utcTimestamp(now())
+            )
+        )
+        if events.count > Self.maximumEvents {
+            events.removeFirst(events.count - Self.maximumEvents)
+        }
+
+        let receipt = PushDiagnosticsReceipt(schemaVersion: Self.schemaVersion, events: events)
+        guard let data = try? JSONEncoder().encode(receipt) else { return }
+        do {
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+        } catch {
+            // Diagnostics must never alter the notification or subscription path.
+        }
+    }
+
+    public func loadReceipt() -> PushDiagnosticsReceipt? {
+        lock.lock()
+        defer { lock.unlock() }
+        return loadReceiptLocked()
+    }
+
+    private func loadReceiptLocked() -> PushDiagnosticsReceipt? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let receipt = try? JSONDecoder().decode(PushDiagnosticsReceipt.self, from: data),
+              receipt.schemaVersion == Self.schemaVersion
+        else { return nil }
+        return receipt
+    }
+
+    private static func utcTimestamp(_ date: Date) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.string(from: date)
+    }
+}
+
+public struct NoopPushDiagnostics: PushDiagnosticsRecording {
+    public init() {}
+
+    public func record(stage _: PushDiagnosticStage, status _: PushDiagnosticStatus) {}
+}
 
 /// Bridges UIKit's remote-notification delegate callbacks (T4.1/T4.2) into
 /// the SwiftUI app -- SwiftUI's `App` protocol has no equivalent hook, so
@@ -37,6 +155,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     private let clearBadge: (UIApplication) -> Void
     private let liveModeEnabled: () -> Bool
     private let registerForRemoteNotifications: @MainActor (UIApplication) -> Void
+    private let pushDiagnostics: any PushDiagnosticsRecording
 
     /// Requests notification authorization and calls back once the prompt has
     /// been answered. Injected so the launch path can be exercised in a unit
@@ -80,6 +199,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         registerForRemoteNotifications = { application in
             application.registerForRemoteNotifications()
         }
+        pushDiagnostics = GradusiOSApp.pushDiagnostics
         liveModeEnabled = {
             RequiredICloudMigration.migrate(
                 defaults: .standard, legacyKey: DashboardViewModel.syncEnabledKey
@@ -94,12 +214,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         liveModeEnabled: @escaping () -> Bool = { true },
         registerForRemoteNotifications: @escaping @MainActor (UIApplication) -> Void = { application in
             application.registerForRemoteNotifications()
-        }
+        },
+        pushDiagnostics: any PushDiagnosticsRecording = NoopPushDiagnostics()
     ) {
         self.clearBadge = { _ in clearBadge() }
         self.requestNotificationAuthorization = requestNotificationAuthorization
         self.liveModeEnabled = liveModeEnabled
         self.registerForRemoteNotifications = registerForRemoteNotifications
+        self.pushDiagnostics = pushDiagnostics
         super.init()
     }
 
@@ -208,8 +330,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 
     private func handleRemoteNotificationOnMainActor() async -> UIBackgroundFetchResult {
         guard !liveActivitySuppressed else { return .noData }
+        pushDiagnostics.record(stage: .remoteNotificationEntry, status: .received)
         await onRemoteNotification?()
+        pushDiagnostics.record(stage: .remoteNotificationCompletion, status: .newData)
         return .newData
+    }
+
+    func application(_: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken _: Data) {
+        pushDiagnostics.record(stage: .apnsRegistration, status: .success)
     }
 
     func application(_: UIApplication, didFailToRegisterForRemoteNotificationsWithError _: Error) {
@@ -217,6 +345,7 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         // lifecycle opportunity; on-demand sync remains available meanwhile.
         remoteRegistrationStarted = false
         remoteRegistrationFailed = true
+        pushDiagnostics.record(stage: .apnsRegistration, status: .failure)
         onRemoteRegistrationFailure?()
     }
 }

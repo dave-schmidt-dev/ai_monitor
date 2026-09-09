@@ -64,10 +64,12 @@ PROJECT="$SCRIPT_DIR/Gradus.xcodeproj"
 SCHEME="GradusiOS"
 BUNDLE_ID="com.zerodelta.gradus.ios"
 REQUIRED_CLOUDKIT_ENVIRONMENT="Production"
+REQUIRED_APNS_ENVIRONMENT="development"
 # plutil reads `.` as a key-path separator, so the entitlement name has to be
 # escaped or the extraction silently resolves nothing and the guard rejects
 # every build, correct one included.
 CLOUDKIT_ENVIRONMENT_KEYPATH='com\.apple\.developer\.icloud-container-environment'
+APNS_ENVIRONMENT_KEYPATH='aps-environment'
 
 XCODEBUILD="${XCODEBUILD:-xcodebuild}"
 XCRUN="${XCRUN:-xcrun}"
@@ -188,6 +190,23 @@ assert_cloudkit_environment() {
   echo "    $label CloudKit environment: $actual"
 }
 
+# APNs ignores namespaced lookalikes of its canonical entitlement key.
+# Verify the canonical entitlement on the signed product so a source typo or
+# provisioning mismatch cannot produce an installed app that never registers.
+assert_apns_environment() {
+  local target="$1" label="$2" entitlements actual
+
+  if ! entitlements="$("$CODESIGN" -d --entitlements :- "$target" 2>/dev/null)"; then
+    die "$label could not be read by codesign at $target (a signing or tooling failure, not an entitlements one)"
+  fi
+  actual="$(/usr/bin/plutil -extract "$APNS_ENVIRONMENT_KEYPATH" raw -o - - \
+    <<<"$entitlements" 2>/dev/null || true)"
+  if [[ "$actual" != "$REQUIRED_APNS_ENVIRONMENT" ]]; then
+    die "$label APNs environment is '${actual:-<unset>}', expected $REQUIRED_APNS_ENVIRONMENT"
+  fi
+  echo "    $label APNs environment: $actual"
+}
+
 # The widget has no CloudKit entitlement, and the leak that motivated this
 # script gave it the app's. Assert the absence directly rather than trusting
 # that nothing reintroduced a project-level override.
@@ -206,6 +225,7 @@ refute_cloudkit_environment() {
 
 echo "==> Verifying signed entitlements"
 assert_cloudkit_environment "$APP" "app"
+assert_apns_environment "$APP" "app"
 refute_cloudkit_environment "$APP/PlugIns/GradusWidget.appex" "widget"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then

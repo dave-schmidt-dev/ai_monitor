@@ -43,10 +43,16 @@ public enum GradusSubscriptionID {
 public struct CKSubscriptionManager: Sendable {
     private let database: SubscriptionDatabase
     private let zoneID: CKRecordZone.ID
+    private let pushDiagnostics: any PushDiagnosticsRecording
 
-    public init(database: SubscriptionDatabase, zoneID: CKRecordZone.ID) {
+    public init(
+        database: SubscriptionDatabase,
+        zoneID: CKRecordZone.ID,
+        pushDiagnostics: any PushDiagnosticsRecording = NoopPushDiagnostics()
+    ) {
         self.database = database
         self.zoneID = zoneID
+        self.pushDiagnostics = pushDiagnostics
     }
 
     /// Idempotent (same reasoning as T2a.2's zone creation, PM-8): saving a
@@ -57,7 +63,13 @@ public struct CKSubscriptionManager: Sendable {
         let info = CKSubscription.NotificationInfo()
         info.shouldSendContentAvailable = true
         subscription.notificationInfo = info
-        try await saveWithOneRetry(subscription)
+        do {
+            try await saveWithOneRetry(subscription)
+            pushDiagnostics.record(stage: .zoneSubscriptionSave, status: .success)
+        } catch {
+            pushDiagnostics.record(stage: .zoneSubscriptionSave, status: .failure)
+            throw error
+        }
     }
 
     public func subscribeToWarnings() async throws {

@@ -831,6 +831,39 @@ grep -Fq 'PRODUCT_BUNDLE_IDENTIFIER: com.zerodelta.gradus.ios' "$SCRIPT_DIR/proj
   echo "FAIL: iOS bundle identifier is not pinned" >&2
   exit 1
 }
+PY_RUN=(uv run --quiet python)
+"${PY_RUN[@]}" -c 'import yaml' 2>/dev/null || {
+  echo "FAIL: the project environment has no PyYAML; run 'uv sync'" >&2
+  exit 1
+}
+debug_apns="$("${PY_RUN[@]}" - "$SCRIPT_DIR/project.yml" <<'PYEOF'
+import sys, yaml
+spec = yaml.safe_load(open(sys.argv[1]))
+settings = spec["targets"]["GradusiOS"]["settings"]
+print(settings.get("base", {}).get("GRADUS_APNS_ENVIRONMENT", ""))
+PYEOF
+)"
+release_apns="$("${PY_RUN[@]}" - "$SCRIPT_DIR/project.yml" <<'PYEOF'
+import sys, yaml
+spec = yaml.safe_load(open(sys.argv[1]))
+settings = spec["targets"]["GradusiOS"]["settings"]
+print(settings.get("configs", {}).get("Release", {}).get("GRADUS_APNS_ENVIRONMENT", ""))
+PYEOF
+)"
+[[ "$debug_apns" == development ]] || {
+  echo "FAIL: GradusiOS Debug APNs environment is '$debug_apns', expected development" >&2
+  exit 1
+}
+[[ "$release_apns" == production ]] || {
+  echo "FAIL: GradusiOS Release APNs environment is '$release_apns', expected production before archive signing" >&2
+  exit 1
+}
+generated_apns="$(/usr/bin/plutil -extract 'aps-environment' raw -o - "$SCRIPT_DIR/GradusiOS/GradusiOS.entitlements" 2>/dev/null || true)"
+[[ "$generated_apns" == '$(GRADUS_APNS_ENVIRONMENT)' ]] || {
+  echo "FAIL: generated GradusiOS entitlement does not use the APNs build-setting placeholder" >&2
+  exit 1
+}
+echo "  ok: GradusiOS Debug/Release APNs configuration resolves development/production"
 grep -Fq 'validate_common_marketing_version "$SCRIPT_DIR/project.yml"' "$UPLOAD_SCRIPT" || {
   echo "FAIL: common marketing-version validation is missing" >&2
   exit 1

@@ -109,6 +109,53 @@ private let zoneID = CKRecordZone.ID(zoneName: CloudKitConstants.zoneName, owner
     #expect(database.saved.count == 1)
 }
 
+@Test func zoneSubscriptionSaveRecordsOnlyFixedDiagnosticFields() async throws {
+    let database = MockSubscriptionDatabase()
+    let diagnostics = PushDiagnostics(
+        fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("gradus-zone-diagnostics-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("push-diagnostics.json")
+    )
+    let manager = CKSubscriptionManager(database: database, zoneID: zoneID, pushDiagnostics: diagnostics)
+
+    try await manager.subscribeToZoneChanges()
+
+    let receipt = try #require(diagnostics.loadReceipt())
+    #expect(receipt.events.map(\.stage) == [.zoneSubscriptionSave])
+    #expect(receipt.events.map(\.status) == [.success])
+    #expect(receipt.events.allSatisfy { $0.timestamp.hasSuffix("Z") })
+}
+
+@Test func zoneSubscriptionFailureDoesNotPersistRawError() async throws {
+    let database = MockSubscriptionDatabase()
+    database.saveErrors = [RetryableSubscriptionError(), RetryableSubscriptionError()]
+    let diagnostics = PushDiagnostics(
+        fileURL: FileManager.default.temporaryDirectory
+            .appendingPathComponent("gradus-zone-failure-diagnostics-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("push-diagnostics.json")
+    )
+    let manager = CKSubscriptionManager(database: database, zoneID: zoneID, pushDiagnostics: diagnostics)
+
+    await #expect(throws: RetryableSubscriptionError.self) {
+        try await manager.subscribeToZoneChanges()
+    }
+
+    let data = try Data(contentsOf: diagnostics.fileURL)
+    let receipt = try JSONDecoder().decode(PushDiagnosticsReceipt.self, from: data)
+    #expect(receipt.events.map(\.stage) == [.zoneSubscriptionSave])
+    #expect(receipt.events.map(\.status) == [.failure])
+    let object = try JSONSerialization.jsonObject(with: data)
+    let serializedReceipt = try #require(object as? [String: Any])
+    #expect(Set(serializedReceipt.keys) == ["schemaVersion", "events"])
+    let serializedEvents = try #require(serializedReceipt["events"] as? [[String: Any]])
+    #expect(serializedEvents.allSatisfy { Set($0.keys) == ["stage", "status", "timestamp"] })
+    let serialized = try #require(String(data: data, encoding: .utf8))
+    #expect(!serialized.contains("RetryableSubscriptionError"))
+    #expect(!serialized.contains("provider"))
+    #expect(!serialized.contains("account"))
+    #expect(!serialized.contains("record"))
+}
+
 @Test func unsubscribeFromWarningsRemovesTheSubscriptionByID() async throws {
     let database = MockSubscriptionDatabase()
     let manager = CKSubscriptionManager(database: database, zoneID: zoneID)

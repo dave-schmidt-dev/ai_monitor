@@ -104,12 +104,14 @@ struct AppDelegateTests {
     }
 
     @Test
-    func failedRemoteRegistrationIsRetryableOnForeground() {
+    func failedRemoteRegistrationIsRetryableOnForeground() throws {
         var registrationCount = 0
         var failureCount = 0
+        let diagnostics = PushDiagnostics(fileURL: diagnosticFileURL())
         let delegate = AppDelegate(
             clearBadge: {},
-            registerForRemoteNotifications: { _ in registrationCount += 1 }
+            registerForRemoteNotifications: { _ in registrationCount += 1 },
+            pushDiagnostics: diagnostics
         )
         delegate.onRemoteRegistrationFailure = { failureCount += 1 }
 
@@ -123,9 +125,92 @@ struct AppDelegateTests {
         #expect(failureCount == 1)
         delegate.applicationWillEnterForeground(UIApplication.shared)
         #expect(registrationCount == 2)
+
+        let receipt = try #require(diagnostics.loadReceipt())
+        #expect(receipt.events.map(\.stage) == [.apnsRegistration])
+        #expect(receipt.events.map(\.status) == [.failure])
+        let serialized = try String(contentsOf: diagnostics.fileURL, encoding: .utf8)
+        #expect(!serialized.contains("TestRegistrationError"))
+    }
+
+    @Test
+    func recordsAPNsRegistrationAndRemoteNotificationWithoutPersistingPayload() async throws {
+        let diagnostics = PushDiagnostics(fileURL: diagnosticFileURL())
+        let delegate = AppDelegate(clearBadge: {}, pushDiagnostics: diagnostics)
+        delegate.onRemoteNotification = {}
+
+        delegate.application(UIApplication.shared, didRegisterForRemoteNotificationsWithDeviceToken: Data([0x01, 0x02]))
+        let result = await delegate.application(
+            UIApplication.shared,
+            didReceiveRemoteNotification: ["provider": "private-payload", "account": "private-account"]
+        )
+
+        #expect(result == .newData)
+        let receipt = try #require(diagnostics.loadReceipt())
+        #expect(
+            receipt.events.map(\.stage) == [
+                .apnsRegistration, .remoteNotificationEntry, .remoteNotificationCompletion
+            ]
+        )
+        #expect(receipt.events.map(\.status) == [.success, .received, .newData])
+        #expect(receipt.events.allSatisfy { $0.timestamp.hasSuffix("Z") })
+
+        let data = try Data(contentsOf: diagnostics.fileURL)
+        try assertOnlyAllowlistedReceiptFields(data)
+        let serialized = try #require(String(data: data, encoding: .utf8))
+        #expect(!serialized.contains("private-payload"))
+        #expect(!serialized.contains("private-account"))
+        #expect(!serialized.contains("0102"))
+    }
+
+    @Test
+    func diagnosticsRetainOnlyTheMostRecentThirtyTwoEvents() throws {
+        let diagnostics = PushDiagnostics(fileURL: diagnosticFileURL())
+
+        for _ in 0 ..< 40 {
+            diagnostics.record(stage: .remoteNotificationEntry, status: .received)
+        }
+
+        let receipt = try #require(diagnostics.loadReceipt())
+        #expect(receipt.events.count == 32)
+        #expect(receipt.events.allSatisfy { $0.stage == .remoteNotificationEntry })
+        #expect(receipt.events.allSatisfy { $0.status == .received })
+    }
+
+    @Test
+    func diagnosticsRejectUnknownSchemaAndReplaceItOnNextRecord() throws {
+        let fileURL = diagnosticFileURL()
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+        )
+        try Data(#"{"schemaVersion":999,"events":[]}"#.utf8).write(to: fileURL)
+        let diagnostics = PushDiagnostics(fileURL: fileURL)
+
+        #expect(diagnostics.loadReceipt() == nil)
+        diagnostics.record(stage: .apnsRegistration, status: .success)
+
+        let receipt = try #require(diagnostics.loadReceipt())
+        #expect(receipt.schemaVersion == PushDiagnostics.schemaVersion)
+        #expect(receipt.events.count == 1)
+        #expect(receipt.events.first?.stage == .apnsRegistration)
+        #expect(receipt.events.first?.status == .success)
     }
 
     private struct TestRegistrationError: Error {}
+
+    private func diagnosticFileURL() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("gradus-push-diagnostics-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("push-diagnostics.json")
+    }
+
+    private func assertOnlyAllowlistedReceiptFields(_ data: Data) throws {
+        let object = try JSONSerialization.jsonObject(with: data)
+        let receipt = try #require(object as? [String: Any])
+        #expect(Set(receipt.keys) == ["schemaVersion", "events"])
+        let events = try #require(receipt["events"] as? [[String: Any]])
+        #expect(events.allSatisfy { Set($0.keys) == ["stage", "status", "timestamp"] })
+    }
 
     @Test(arguments: ["iPhone", "iPad"])
     func sampleEntryDoesNotStartRemoteRegistration(_ device: String) async {

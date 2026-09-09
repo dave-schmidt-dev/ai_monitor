@@ -9,11 +9,10 @@
 # ever "simplified" away, or moved to reading the entitlements file in the repo
 # instead of the signed product, this is the test that notices.
 #
-# The pin lives in project.yml, not in GradusiOS.entitlements -- that file is
-# XcodeGen output. An earlier hand edit to it passed this file and was then
-# wiped by the gate's own `xcodegen generate` a few legs later, so the first
-# assertions below read the YAML source and only then check that the generated
-# file agrees.
+# The configuration-specific APNs values live in project.yml, not as literals
+# in GradusiOS.entitlements -- that file is XcodeGen output. The first
+# assertions below read both target configurations from the YAML source and
+# then check that the generated file preserves the single placeholder.
 #
 # Every negative assertion is written `if run_install ...; then fail; fi`. The
 # footgun is not the `&&` form -- verified on this host, `cmd && fail` and
@@ -72,6 +71,26 @@ PYEOF
   fail "project.yml GradusiOS CloudKit environment is '${yaml_env:-<unset>}', expected Production (this is the source of truth; the .entitlements file is generated from it)"
 pass "project.yml pins the Production container for GradusiOS"
 
+yaml_apns="$("${PY_RUN[@]}" - "$PROJECT_YML" <<'PYEOF'
+import sys, yaml
+spec = yaml.safe_load(open(sys.argv[1]))
+settings = spec["targets"]["GradusiOS"]["settings"]
+print(settings.get("base", {}).get("GRADUS_APNS_ENVIRONMENT", ""))
+PYEOF
+)"
+[[ "$yaml_apns" == "development" ]] ||
+  fail "project.yml GradusiOS Debug APNs environment is '${yaml_apns:-<unset>}', expected development"
+release_apns="$("${PY_RUN[@]}" - "$PROJECT_YML" <<'PYEOF'
+import sys, yaml
+spec = yaml.safe_load(open(sys.argv[1]))
+settings = spec["targets"]["GradusiOS"]["settings"]
+print(settings.get("configs", {}).get("Release", {}).get("GRADUS_APNS_ENVIRONMENT", ""))
+PYEOF
+)"
+[[ "$release_apns" == "production" ]] ||
+  fail "project.yml GradusiOS Release APNs environment is '${release_apns:-<unset>}', expected production"
+pass "project.yml resolves Debug APNs to development and Release APNs to production"
+
 # The widget has no CloudKit entitlement, so the key would be meaningless there
 # -- and a stray copy is how a future edit ends up pinning the wrong target.
 widget_env="$("${PY_RUN[@]}" - "$PROJECT_YML" <<'PYEOF'
@@ -89,6 +108,11 @@ actual_env="$(/usr/bin/plutil -extract 'com\.apple\.developer\.icloud-container-
 [[ "$actual_env" == "Production" ]] ||
   fail "GradusiOS.entitlements CloudKit environment is '${actual_env:-<unset>}', expected Production -- project.yml and the generated file disagree; run \`xcodegen generate\`"
 pass "the generated entitlements file agrees with project.yml"
+
+actual_apns="$(/usr/bin/plutil -extract 'aps-environment' raw -o - "$ENTITLEMENTS" 2>/dev/null || true)"
+[[ "$actual_apns" == '$(GRADUS_APNS_ENVIRONMENT)' ]] ||
+  fail "GradusiOS.entitlements APNs environment is '${actual_apns:-<unset>}', expected \$(GRADUS_APNS_ENVIRONMENT)"
+pass "the generated entitlements file uses the configuration-specific APNs placeholder"
 
 # --- Fakes --------------------------------------------------------------------
 mkdir -p "$FAKE_BIN"
@@ -160,6 +184,7 @@ if [[ "${!#}" == *.appex ]]; then
   exit 0
 fi
 env_value="$(cat "$STATE/signed_env" 2>/dev/null || true)"
+apns_value="$(cat "$STATE/signed_apns_env" 2>/dev/null || true)"
 if [[ "$env_value" == "MULTI" ]]; then
   printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>com.apple.developer.icloud-container-environment</key><array><string>Production</string><string>Development</string></array></dict></plist>\n'
   exit 0
@@ -169,7 +194,11 @@ if [[ -z "$env_value" ]]; then
   printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>application-identifier</key><string>X.com.zerodelta.gradus.ios</string></dict></plist>\n'
   exit 0
 fi
-printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>com.apple.developer.icloud-container-environment</key><string>%s</string></dict></plist>\n' "$env_value"
+if [[ -n "$apns_value" ]]; then
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>com.apple.developer.icloud-container-environment</key><string>%s</string><key>aps-environment</key><string>%s</string></dict></plist>\n' "$env_value" "$apns_value"
+else
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict><key>com.apple.developer.icloud-container-environment</key><string>%s</string></dict></plist>\n' "$env_value"
+fi
 EOF
 
 cat >"$FAKE_BIN/xcrun" <<'EOF'
@@ -210,6 +239,7 @@ reset_state() {
   rm -rf "$STATE" "$TEST_ROOT/dd"
   mkdir -p "$STATE"
   write_state signed_env "Production"
+  write_state signed_apns_env "development"
 }
 
 # --- A Development container must never reach a device ------------------------
@@ -233,6 +263,27 @@ if run_install --device TESTDEVICE >/dev/null 2>&1; then
   fail "installed a bundle with no CloudKit environment entitlement at all"
 fi
 pass "refuses to install when the entitlement is absent"
+
+# --- APNs requires the canonical development entitlement ---------------------
+reset_state
+write_state signed_apns_env ""
+if output="$(run_install --device TESTDEVICE 2>&1)"; then
+  fail "installed a bundle with no APNs environment entitlement"
+fi
+grep -q "APNs environment is '<unset>'" <<<"$output" ||
+  fail "missing APNs entitlement was not named: $output"
+[[ ! -s "$STATE/xcrun.calls" ]] || fail "installed without an APNs entitlement"
+pass "refuses to install when the APNs entitlement is absent"
+
+reset_state
+write_state signed_apns_env "production"
+if output="$(run_install --device TESTDEVICE 2>&1)"; then
+  fail "installed a bundle with the wrong APNs environment"
+fi
+grep -q "APNs environment is 'production'" <<<"$output" ||
+  fail "wrong APNs entitlement value was not named: $output"
+[[ ! -s "$STATE/xcrun.calls" ]] || fail "installed with the wrong APNs entitlement"
+pass "refuses to install when the APNs entitlement has the wrong value"
 
 # --- The happy path installs and launches -------------------------------------
 reset_state

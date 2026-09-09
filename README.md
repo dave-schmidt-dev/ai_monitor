@@ -4,11 +4,10 @@ The 2026-08-10 reliability/accessibility/parity reconciliation is recorded in
 the dated Gradus plan under the local `.plans/gradus/` workspace; its live
 queue mapping and explicit future exclusions remain in `TASKS.md`.
 
-The latest confirmed internal TestFlight build remains **1.8.0 (20)**.
-Candidate **1.9.0-24** reached readiness only: its local preparation attempts
-failed before archive creation, signing, artifact verification, or upload, so
-Apple never received it. Future candidates use the source-bound local release
-gate before archive and signing. App Store submission remains
+The latest confirmed internal TestFlight build is **1.10.3 (35)**, delivered
+from source revision `357ca34`. Xcode Cloud is retired for Gradus delivery;
+future candidates use the source-bound local release gate before archive,
+signing, and upload. App Store submission remains
 separately gated; the publication roadmap is in `RELEASE_CHECKLIST.md`, and the
 live queue is in `TASKS.md`.
 

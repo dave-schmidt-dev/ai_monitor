@@ -41,7 +41,7 @@ from gradus.providers import (
 )
 from gradus.providers import claude as claude_provider_module
 from gradus.providers._codex_helpers import _extract_spark_window, _extract_spark_windows
-from gradus.snapshot import _is_transient_probe_error
+from gradus.snapshot import CLAUDE_STALE_CREDENTIAL_MESSAGE, _is_transient_probe_error
 
 
 class ProviderHelperTests(unittest.TestCase):
@@ -1771,8 +1771,13 @@ class ClaudeHttpProviderTests(unittest.TestCase):
 
         # The stale token is never spent: no request, so no 401 to misread.
         http.assert_not_called()
+        self.assertEqual(str(ctx.exception), CLAUDE_STALE_CREDENTIAL_MESSAGE)
+        self.assertTrue(
+            _is_transient_probe_error(
+                SimpleNamespace(name="Claude", ok=False, error=str(ctx.exception))
+            )
+        )
         message = str(ctx.exception).lower()
-        self.assertIn("refreshes it on next use", message)
         for classifier_substring in (
             "session expired",
             "re-authenticate",

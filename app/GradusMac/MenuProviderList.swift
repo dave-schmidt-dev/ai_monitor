@@ -201,7 +201,8 @@ private struct ProviderRow: View {
 
             if !provider.ok,
                !ProviderRetryAccessibility.isCarriedFailure(provider)
-               || ProviderRetryAccessibility.isClaudeRateLimited(provider) {
+               || ProviderRetryAccessibility.isClaudeRateLimited(provider)
+               || ProviderRetryAccessibility.isClaudeStaleCredential(provider) {
                 let label = ProviderRetryAccessibility.displayLabel(for: provider)
                     ?? "Provider probe failed"
                 Text(label)

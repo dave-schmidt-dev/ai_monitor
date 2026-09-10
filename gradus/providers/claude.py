@@ -97,9 +97,11 @@ class ClaudeHttpProvider:
                 "Claude Code session expired: run `claude auth login`",
                 "",
             )
-        stamp = datetime.datetime.fromtimestamp(expires_at / 1000).strftime("%-I:%M %p")
+        # Imported lazily to preserve snapshot.py's provider-import boundary.
+        from ..snapshot import CLAUDE_STALE_CREDENTIAL_MESSAGE
+
         raise ProbeFailure(
-            f"Claude Code token went stale at {stamp}; Claude Code refreshes it on next use",
+            CLAUDE_STALE_CREDENTIAL_MESSAGE,
             "",
         )
 

@@ -1328,6 +1328,47 @@ class TestTransientMerge(unittest.TestCase):
         codex["data"]["five_hour_percent_left"] = 1
         self.assertEqual(prior_codex["data"]["five_hour_percent_left"], 88)
 
+    def test_claude_stale_credential_carries_for_24_hours_fail_closed(self) -> None:
+        claude = _ps(
+            "Claude",
+            True,
+            data={"session_percent_left": 73, "primary_reset": "in 4h"},
+        )
+        failing = _ps("Claude", False, error=snap.CLAUDE_STALE_CREDENTIAL_MESSAGE)
+
+        for age, retained in ((86_399, True), (86_400, False)):
+            with self.subTest(age=age):
+                prior = snap.build_snapshot_payload([claude], NOW - timedelta(seconds=age))
+                prior_claude = next(
+                    entry for entry in prior["providers"] if entry["name"] == "Claude"
+                )
+                payload = snap.build_snapshot_payload([failing], NOW, prior=prior)
+                current = next(entry for entry in payload["providers"] if entry["name"] == "Claude")
+                self.assertFalse(current["ok"])
+                self.assertEqual(current["error"], snap.CLAUDE_STALE_CREDENTIAL_MESSAGE)
+                self.assertEqual(bool(current["windows"]), retained)
+                self.assertEqual(
+                    current["observed_at"],
+                    prior_claude["observed_at"] if retained else None,
+                )
+                self.assertEqual(current["probe_attempted_at"], snap.local_iso(NOW))
+
+    def test_claude_stale_credential_near_match_is_not_transient(self) -> None:
+        near_match = SimpleNamespace(
+            name="Claude",
+            ok=False,
+            error=snap.CLAUDE_STALE_CREDENTIAL_MESSAGE + ".",
+        )
+        self.assertFalse(snap._is_transient_probe_error(near_match))
+
+    def test_claude_stale_credential_marker_is_name_gated(self) -> None:
+        collision = SimpleNamespace(
+            name="Codex",
+            ok=False,
+            error=snap.CLAUDE_STALE_CREDENTIAL_MESSAGE,
+        )
+        self.assertFalse(snap._is_transient_probe_error(collision))
+
     def test_fresh_entry_observed_at_equals_updated_at(self) -> None:
         """A freshly-probed ok:true entry's observed_at equals updated_at."""
         prior = self._healthy_prior(NOW)

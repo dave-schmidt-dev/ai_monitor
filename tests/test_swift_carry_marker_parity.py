@@ -25,6 +25,7 @@ from pathlib import Path
 
 from gradus.snapshot import (
     ANTIGRAVITY_AUTH_RETRY_MESSAGE,
+    CLAUDE_STALE_CREDENTIAL_MESSAGE,
     COPILOT_PROBE_RETRY_MESSAGE,
 )
 
@@ -34,6 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CARRY_MARKERS = {
     "retryingLabel": ANTIGRAVITY_AUTH_RETRY_MESSAGE,
     "copilotRetryLabel": COPILOT_PROBE_RETRY_MESSAGE,
+    "claudeStaleCredentialLabel": CLAUDE_STALE_CREDENTIAL_MESSAGE,
 }
 
 #: Every Swift surface that classifies a provider failure. A new one belongs

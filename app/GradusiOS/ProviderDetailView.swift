@@ -58,13 +58,15 @@ struct ProviderDetailView: View {
                 }
                 if !provider.ok,
                    !IOSProviderRetryAccessibility.isCarriedFailure(provider)
-                   || IOSProviderRetryAccessibility.isClaudeRateLimited(provider) {
+                   || IOSProviderRetryAccessibility.isClaudeRateLimited(provider)
+                   || IOSProviderRetryAccessibility.isClaudeStaleCredential(provider) {
                     errorText
                 }
             }
         } else if !provider.ok,
                   !IOSProviderRetryAccessibility.isCarriedFailure(provider)
-                  || IOSProviderRetryAccessibility.isClaudeRateLimited(provider) {
+                  || IOSProviderRetryAccessibility.isClaudeRateLimited(provider)
+                  || IOSProviderRetryAccessibility.isClaudeStaleCredential(provider) {
             errorText
         } else if IOSProviderRetryAccessibility.isCarriedFailure(provider) {
             // A nonempty window list is retained transient data. The real

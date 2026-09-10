@@ -4,6 +4,7 @@ import GradusKit
 enum IOSProviderRetryAccessibility {
     static let retryingLabel = "Antigravity refresh retrying; values may be stale"
     static let copilotRetryLabel = "Copilot probe timed out; showing cached values"
+    static let claudeStaleCredentialLabel = "Claude Code credential is stale; showing cached values"
     static let reauthenticationLabel = "Antigravity authentication required; run agy to re-authenticate"
     static let claudeRateLimitedLabel = "Claude rate limited; cached values may be stale"
     static let failedRequestLabel = "Unable to refresh provider data"
@@ -14,7 +15,7 @@ enum IOSProviderRetryAccessibility {
     /// `tests/test_swift_carry_marker_parity.py` -- reworded on one side alone,
     /// the Copilot marker painted a red row whose own text read "showing cached
     /// values" for two commits before anything noticed.
-    static let carryLabels: Set<String> = [retryingLabel, copilotRetryLabel]
+    static let carryLabels: Set<String> = [retryingLabel, copilotRetryLabel, claudeStaleCredentialLabel]
 
     private static let httpStatusPatterns = [
         #"(?i)\bHTTP(?:/\d(?:\.\d)?)?\s+[45]\d{2}\b"#,
@@ -45,11 +46,16 @@ enum IOSProviderRetryAccessibility {
     }
 
     static func label(for provider: ProviderStatus) -> String? {
+        if isClaudeStaleCredential(provider) {
+            return claudeStaleCredentialLabel
+        }
         if isClaudeRateLimited(provider) {
             return claudeRateLimitedLabel
         }
         guard !provider.ok else { return nil }
-        if let error = provider.errorMessage, carryLabels.contains(error) {
+        if let error = provider.errorMessage,
+           error != claudeStaleCredentialLabel,
+           carryLabels.contains(error) {
             return error
         }
         guard provider.providerName == "Antigravity" else { return nil }
@@ -64,7 +70,13 @@ enum IOSProviderRetryAccessibility {
     /// says the same thing to a reader and earns the same quiet treatment.
     static func isRetrying(_ provider: ProviderStatus) -> Bool {
         guard let label = label(for: provider) else { return false }
-        return carryLabels.contains(label)
+        return label != claudeStaleCredentialLabel && carryLabels.contains(label)
+    }
+
+    static func isClaudeStaleCredential(_ provider: ProviderStatus) -> Bool {
+        provider.providerName == "Claude"
+            && !provider.ok
+            && provider.errorMessage == claudeStaleCredentialLabel
     }
 
     static func isClaudeRateLimited(_ provider: ProviderStatus) -> Bool {
@@ -77,20 +89,27 @@ enum IOSProviderRetryAccessibility {
     }
 
     static func isStale(_ provider: ProviderStatus) -> Bool {
-        isClaudeRateLimited(provider) && !provider.windows.isEmpty
+        !provider.windows.isEmpty
+            && (isClaudeRateLimited(provider) || isClaudeStaleCredential(provider))
     }
 
-    /// Only an explicit retry or Claude rate-limit state may quiet a failed
-    /// provider when retained windows are present. Other failures keep their
-    /// remedy and urgency visible even when cached readings are present.
+    /// Only an explicit retry, Claude rate-limit, or stale-credential state may
+    /// quiet a failed provider when retained windows are present. Other failures
+    /// keep their remedy and urgency visible even with cached readings.
     static func isCarriedFailure(_ provider: ProviderStatus) -> Bool {
-        !provider.windows.isEmpty && (isRetrying(provider) || isClaudeRateLimited(provider))
+        !provider.windows.isEmpty
+            && (isRetrying(provider)
+                || isClaudeRateLimited(provider)
+                || isClaudeStaleCredential(provider))
     }
 
-    /// Returns the user-facing status text for an errored provider. Only the
-    /// A carried Claude rate limit uses the fixed stale label; the proven
-    /// Antigravity retry state is quiet; all other failures retain diagnostics.
+    /// Returns the user-facing status text for an errored provider. Carried
+    /// Claude failures use fixed labels; proven Antigravity retry state is quiet;
+    /// all other failures retain diagnostics.
     static func displayLabel(for provider: ProviderStatus) -> String? {
+        if isClaudeStaleCredential(provider) {
+            return claudeStaleCredentialLabel
+        }
         if isClaudeRateLimited(provider) {
             return claudeRateLimitedLabel
         }

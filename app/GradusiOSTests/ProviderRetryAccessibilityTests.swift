@@ -140,6 +140,37 @@ struct ProviderRetryAccessibilityTests {
         #expect(noCachedWindows.rankingNeedsAttention(localThreshold: 30))
     }
 
+    @Test func claudeStaleCredentialIsAnExactCarriedFailure() {
+        let carried = provider(name: "Claude", error: IOSProviderRetryAccessibility.claudeStaleCredentialLabel)
+        #expect(IOSProviderRetryAccessibility.isClaudeStaleCredential(carried))
+        #expect(!IOSProviderRetryAccessibility.isClaudeRateLimited(carried))
+        #expect(IOSProviderRetryAccessibility.isCarriedFailure(carried))
+        #expect(IOSProviderRetryAccessibility.isStale(carried))
+        #expect(
+            IOSProviderRetryAccessibility.displayLabel(for: carried)
+                == IOSProviderRetryAccessibility.claudeStaleCredentialLabel
+        )
+        #expect(carried.rankingIsOK)
+        #expect(!carried.rankingNeedsAttention(localThreshold: 30))
+
+        let nearMiss = provider(name: "Claude", error: IOSProviderRetryAccessibility.claudeStaleCredentialLabel + ".")
+        #expect(!IOSProviderRetryAccessibility.isClaudeStaleCredential(nearMiss))
+        #expect(!IOSProviderRetryAccessibility.isCarriedFailure(nearMiss))
+        #expect(!nearMiss.rankingIsOK)
+
+        let empty = provider(
+            name: "Claude",
+            error: IOSProviderRetryAccessibility.claudeStaleCredentialLabel,
+            windows: []
+        )
+        #expect(IOSProviderRetryAccessibility.isClaudeStaleCredential(empty))
+        #expect(!IOSProviderRetryAccessibility.isClaudeRateLimited(empty))
+        #expect(!IOSProviderRetryAccessibility.isStale(empty))
+        #expect(!IOSProviderRetryAccessibility.isCarriedFailure(empty))
+        #expect(!empty.rankingIsOK)
+        #expect(empty.rankingNeedsAttention(localThreshold: 30))
+    }
+
     /// Regression for the 2026-08-27 divergence: Python renamed Copilot's
     /// timeout message so its own retention window could find it, and this
     /// surface -- still matching only Antigravity's marker -- ranked the row

@@ -55,6 +55,10 @@ RATE_LIMIT_RETENTION_SECONDS = 7200
 # but bucketless response is transient and must retain the last observation
 # through the next eligible probe instead of creating a five-minute blank gap.
 CLAUDE_EMPTY_RESPONSE_RETENTION_SECONDS = 1200
+# Claude Code owns refresh-token rotation.  When its cached access token is
+# stale but the refresh grant is live, retain the last successful observation
+# long enough for Claude Code to refresh its own credential on normal use.
+CLAUDE_STALE_CREDENTIAL_RETENTION_SECONDS = 86_400
 # Applies to *any* Copilot timeout, not just the subprocess one.  The motivating
 # case is the subprocess: with no `oauth_token` in `~/.config/gh/hosts.yml` the
 # token lives in the Keychain, so every probe spawns `gh auth token` under a 10s
@@ -77,6 +81,7 @@ ANTIGRAVITY_AUTH_RETRY_MESSAGE = "Antigravity refresh retrying; values may be st
 # "timed out" marker deliberately: `_is_transient_probe_error` matches on it, so
 # dropping it would reclassify the tick for `history.py` and `__main__.py`.
 COPILOT_PROBE_RETRY_MESSAGE = "Copilot probe timed out; showing cached values"
+CLAUDE_STALE_CREDENTIAL_MESSAGE = "Claude Code credential is stale; showing cached values"
 ANTIGRAVITY_AUTH_ERROR_MARKER = "Antigravity session expired"
 LEGACY_CLAUDE_UNAVAILABLE_ERROR = "legacy Claude snapshot unavailable"
 _LEGACY_CLAUDE_ENTRY_MAX_BYTES = 16_384
@@ -288,8 +293,8 @@ def window_warns(window: Mapping[str, object]) -> bool:
 def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
     """Return True when a failed probe looks transient (safe to serve stale).
 
-    Duck-typed: reads only ``.ok`` and ``.error`` so no provider import is
-    needed. A transient error is one whose message matches a known set of
+    Duck-typed: reads ``.ok``, ``.error``, and optionally ``.name`` so no
+    provider import is needed. A transient error is one whose message matches a known set of
     retryable markers (rate limits, timeouts, expired tokens, etc.).
 
     Args:
@@ -300,6 +305,11 @@ def _is_transient_probe_error(snapshot: ProviderSnapshot) -> bool:
     """
     if snapshot.ok or not snapshot.error:
         return False
+    if (
+        getattr(snapshot, "name", None) == "Claude"
+        and snapshot.error == CLAUDE_STALE_CREDENTIAL_MESSAGE
+    ):
+        return True
     message = snapshot.error.lower()
     transient_markers = (
         "rate limited",
@@ -1405,6 +1415,8 @@ def _is_fresh_retained_entry(
 
 def _retention_seconds(name: str, error: str | None) -> float:
     """Return the bounded retention window for a failed provider entry."""
+    if name == "Claude" and error == CLAUDE_STALE_CREDENTIAL_MESSAGE:
+        return CLAUDE_STALE_CREDENTIAL_RETENTION_SECONDS
     lower = error.lower() if isinstance(error, str) else ""
     if name == "Claude" and (
         "rate limited" in lower
